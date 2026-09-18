@@ -1,0 +1,37 @@
+# Bear AI checkpoint repository
+# Ignore the whole Unity project by default. Only the explicitly unignored
+# files below are allowed into this repository.
+/*
+
+# Repository documentation and rules
+!/.gitignore
+!/.gitattributes
+!/README.md
+
+# The complete Bear AI module: scripts, prefab, AI scene, and every .meta file
+!/Assets/
+/Assets/*
+!/Assets/Scripts/
+/Assets/Scripts/*
+!/Assets/Scripts/Bear.meta
+!/Assets/Scripts/Bear/
+!/Assets/Scripts/Bear/**
+
+# The small Animator Controller referenced by the bear prefab
+!/Assets/BaseFolder/
+/Assets/BaseFolder/*
+!/Assets/BaseFolder/Bears/
+/Assets/BaseFolder/Bears/*
+!/Assets/BaseFolder/Bears/Bear_2/
+/Assets/BaseFolder/Bears/Bear_2/*
+!/Assets/BaseFolder/Bears/Bear_2/Bear_aimator2.controller
+!/Assets/BaseFolder/Bears/Bear_2/Bear_aimator2.controller.meta
+
+# Unity configuration required by the current AI implementation
+!/Packages/
+/Packages/*
+!/Packages/manifest.json
+!/Packages/packages-lock.json
+!/ProjectSettings/
+/ProjectSettings/*
+!/ProjectSettings/TagManager.asset

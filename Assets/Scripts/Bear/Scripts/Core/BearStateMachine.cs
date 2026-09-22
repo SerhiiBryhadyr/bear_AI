@@ -7,6 +7,7 @@ public class BearStateMachine : MonoBehaviour
     private BearIdleState idleState;
     private BearPatrolState patrolState;
     private BearFollowPlayerState followPlayerState;
+    private BearInvestigateSoundState investigateSoundState;
     private BearSearchLastKnownState searchLastKnownState;
 
     private bool initialized;
@@ -16,6 +17,7 @@ public class BearStateMachine : MonoBehaviour
         idleState = GetComponent<BearIdleState>();
         patrolState = GetComponent<BearPatrolState>();
         followPlayerState = GetComponent<BearFollowPlayerState>();
+        investigateSoundState = GetComponent<BearInvestigateSoundState>();
         searchLastKnownState = GetComponent<BearSearchLastKnownState>();
     }
 
@@ -61,6 +63,11 @@ public class BearStateMachine : MonoBehaviour
                     followPlayerState.enabled = false;
                 break;
 
+            case BearState.InvestigateSound:
+                if (investigateSoundState != null)
+                    investigateSoundState.enabled = false;
+                break;
+
             case BearState.SearchLastKnown:
                 if (searchLastKnownState != null)
                     searchLastKnownState.enabled = false;
@@ -85,6 +92,11 @@ public class BearStateMachine : MonoBehaviour
             case BearState.FollowPlayer:
                 if (followPlayerState != null)
                     followPlayerState.enabled = true;
+                break;
+
+            case BearState.InvestigateSound:
+                if (investigateSoundState != null)
+                    investigateSoundState.enabled = true;
                 break;
 
             case BearState.SearchLastKnown:

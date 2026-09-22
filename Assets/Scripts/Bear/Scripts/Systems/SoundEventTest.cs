@@ -4,6 +4,9 @@ public class SoundEventTest : MonoBehaviour
 {
     public KeyCode testKey = KeyCode.T;
 
+    [Range(0f, 5f)]
+    public float testLoudness = 1f;
+
     private BearHearing bearHearing;
 
     private void Start()
@@ -23,7 +26,7 @@ public class SoundEventTest : MonoBehaviour
             SoundEvent soundEvent = new SoundEvent(
                 transform.position,
                 SoundType.Footstep,
-                1f
+                testLoudness
             );
 
             Debug.Log(

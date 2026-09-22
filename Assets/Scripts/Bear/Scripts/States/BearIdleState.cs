@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class BearIdleState : MonoBehaviour
 {
-    public float idleTime = 3f;
+    public float idleTime = 6.66f;
 
     private BearAI bearAI;
     private float timer;

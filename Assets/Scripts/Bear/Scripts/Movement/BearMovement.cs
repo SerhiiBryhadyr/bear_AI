@@ -5,12 +5,15 @@ public class BearMovement : MonoBehaviour
 {
     private NavMeshAgent agent;
 
+    private Animator animator;
+
     public bool IsMoving => agent != null && agent.velocity.magnitude > 0.1f;
 
     private void Awake()
-    {
-        agent = GetComponent<NavMeshAgent>();
-    }
+{
+    agent = GetComponent<NavMeshAgent>();
+    animator = GetComponent<Animator>();
+}
 
     public void MoveTo(Vector3 position)
     {
@@ -43,4 +46,10 @@ public class BearMovement : MonoBehaviour
 
         return agent.remainingDistance <= agent.stoppingDistance + 0.1f;
     }
+
+    private void Update()
+{
+    if (animator != null)
+        animator.SetBool("IsMoving", IsMoving);
+}
 }

@@ -26,7 +26,7 @@ public class BearInvestigateSoundState : MonoBehaviour
         if (vision != null && vision.CanSeePlayer())
         {
             bearAI.SetLastKnownPlayerPosition(vision.player.position);
-            bearAI.StateMachine.ChangeState(BearState.FollowPlayer);
+            bearAI.StateMachine.ChangeState(BearState.Tracking);
 
             return;
         }

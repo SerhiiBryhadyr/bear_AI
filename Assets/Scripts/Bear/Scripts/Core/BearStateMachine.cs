@@ -58,7 +58,7 @@ public class BearStateMachine : MonoBehaviour
                     patrolState.enabled = false;
                 break;
 
-            case BearState.FollowPlayer:
+            case BearState.Tracking:
                 if (followPlayerState != null)
                     followPlayerState.enabled = false;
                 break;
@@ -89,7 +89,7 @@ public class BearStateMachine : MonoBehaviour
                     patrolState.enabled = true;
                 break;
 
-            case BearState.FollowPlayer:
+            case BearState.Tracking:
                 if (followPlayerState != null)
                     followPlayerState.enabled = true;
                 break;

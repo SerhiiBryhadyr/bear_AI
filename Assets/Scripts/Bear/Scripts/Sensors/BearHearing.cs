@@ -48,7 +48,7 @@ public class BearHearing : MonoBehaviour
         if (bearAI == null)
             return;
 
-        if (bearAI.StateMachine.CurrentState == BearState.FollowPlayer)
+        if (bearAI.StateMachine.CurrentState == BearState.Tracking)
             return;
 
         if (investigationSystem == null || investigateSoundState == null)

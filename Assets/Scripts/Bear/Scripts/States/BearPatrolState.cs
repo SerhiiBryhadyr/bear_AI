@@ -28,7 +28,7 @@ public class BearPatrolState : MonoBehaviour
             Debug.Log("Bear saw player!");
 
             bearAI.SetLastKnownPlayerPosition(vision.player.position);
-            bearAI.StateMachine.ChangeState(BearState.FollowPlayer);
+            bearAI.StateMachine.ChangeState(BearState.Tracking);
 
             return;
         }

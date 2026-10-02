@@ -35,7 +35,7 @@ public class BearSearchLastKnownState : MonoBehaviour
         {
             Debug.Log("Bear found player again!");
 
-            bearAI.StateMachine.ChangeState(BearState.FollowPlayer);
+            bearAI.StateMachine.ChangeState(BearState.Tracking);
             return;
         }
 

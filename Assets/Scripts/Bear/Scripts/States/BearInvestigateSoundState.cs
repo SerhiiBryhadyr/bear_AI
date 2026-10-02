@@ -25,8 +25,13 @@ public class BearInvestigateSoundState : MonoBehaviour
     {
         if (vision != null && vision.CanSeePlayer())
         {
-            bearAI.SetLastKnownPlayerPosition(vision.player.position);
-            bearAI.StateMachine.ChangeState(BearState.Tracking);
+            bearAI.SetLastKnownPlayerPosition(
+                vision.player.position
+            );
+
+            bearAI.StateMachine.ChangeState(
+                BearState.Tracking
+            );
 
             return;
         }
@@ -38,7 +43,13 @@ public class BearInvestigateSoundState : MonoBehaviour
         {
             bearAI.Movement.Stop();
 
-            Debug.Log("Bear reached investigation point.");
+            Debug.Log(
+                "Bear reached investigation point. Starting search."
+            );
+
+            bearAI.StateMachine.ChangeState(
+                BearState.Search
+            );
         }
     }
 

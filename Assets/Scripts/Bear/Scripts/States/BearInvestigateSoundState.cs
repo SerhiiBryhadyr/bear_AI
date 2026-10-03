@@ -2,11 +2,16 @@ using UnityEngine;
 
 public class BearInvestigateSoundState : MonoBehaviour
 {
+    public float waitAtInvestigationPoint = 1f;
+
     private BearAI bearAI;
     private BearVision vision;
 
     private Vector3 investigationPoint;
     private bool hasInvestigationPoint;
+
+    private bool reachedPoint;
+    private float waitTimer;
 
     private void Awake()
     {
@@ -17,6 +22,8 @@ public class BearInvestigateSoundState : MonoBehaviour
     private void OnEnable()
     {
         hasInvestigationPoint = false;
+        reachedPoint = false;
+        waitTimer = 0f;
 
         Debug.Log("Bear entered INVESTIGATE SOUND");
     }
@@ -39,16 +46,33 @@ public class BearInvestigateSoundState : MonoBehaviour
         if (!hasInvestigationPoint)
             return;
 
-        if (bearAI.Movement.HasReachedDestination())
+        if (!reachedPoint)
         {
-            bearAI.Movement.Stop();
+            if (bearAI.Movement.HasReachedDestination())
+            {
+                reachedPoint = true;
+                waitTimer = waitAtInvestigationPoint;
 
+                bearAI.Movement.Stop();
+
+                Debug.Log(
+                    "Bear reached investigation point."
+                );
+            }
+
+            return;
+        }
+
+        waitTimer -= Time.deltaTime;
+
+        if (waitTimer <= 0f)
+        {
             Debug.Log(
-                "Bear reached investigation point. Starting search."
+                "Bear did not find player. Returning to patrol."
             );
 
             bearAI.StateMachine.ChangeState(
-                BearState.Search
+                BearState.Patrol
             );
         }
     }
@@ -58,7 +82,11 @@ public class BearInvestigateSoundState : MonoBehaviour
         investigationPoint = point;
         hasInvestigationPoint = true;
 
-        bearAI.Movement.MoveTo(investigationPoint);
+        reachedPoint = false;
+
+        bearAI.Movement.MoveTo(
+            investigationPoint
+        );
 
         Debug.Log(
             "Bear investigating sound at: " +

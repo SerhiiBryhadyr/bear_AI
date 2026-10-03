@@ -3,7 +3,8 @@ using UnityEngine.AI;
 
 public class BearInvestigationSystem : MonoBehaviour
 {
-    public float investigationRadius = 5f;
+    [Header("Localization")]
+    public float localizationRadius = 5f;
 
     public bool TryGetInvestigationPoint(
         Vector3 soundPosition,
@@ -11,12 +12,13 @@ public class BearInvestigationSystem : MonoBehaviour
     {
         for (int i = 0; i < 10; i++)
         {
-            Vector2 randomCircle = Random.insideUnitCircle * investigationRadius;
+            Vector2 randomOffset =
+                Random.insideUnitCircle * localizationRadius;
 
             Vector3 randomPoint = new Vector3(
-                soundPosition.x + randomCircle.x,
+                soundPosition.x + randomOffset.x,
                 soundPosition.y,
-                soundPosition.z + randomCircle.y
+                soundPosition.z + randomOffset.y
             );
 
             if (NavMesh.SamplePosition(

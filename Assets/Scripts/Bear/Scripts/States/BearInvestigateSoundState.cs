@@ -19,8 +19,12 @@ public class BearInvestigateSoundState : MonoBehaviour
     private Vector3 secondPoint;
     private bool hasSecondPoint;
 
+    private Vector3 thirdPoint;
+    private bool hasThirdPoint;
+
     private bool reachedFirstPoint;
     private bool reachedSecondPoint;
+    private bool reachedThirdPoint;
 
     private float waitTimer;
 
@@ -34,9 +38,11 @@ public class BearInvestigateSoundState : MonoBehaviour
     {
         hasInvestigationPoint = false;
         hasSecondPoint = false;
+        hasThirdPoint = false;
 
         reachedFirstPoint = false;
         reachedSecondPoint = false;
+        reachedThirdPoint = false;
 
         waitTimer = 0f;
 
@@ -79,7 +85,7 @@ public class BearInvestigateSoundState : MonoBehaviour
             return;
         }
 
-        // Idle на точці X
+        // Idle на X
         if (reachedFirstPoint && !hasSecondPoint)
         {
             waitTimer -= Time.deltaTime;
@@ -103,7 +109,7 @@ public class BearInvestigateSoundState : MonoBehaviour
             return;
         }
 
-        // Рух до другої точки Y
+        // Рух до Y
         if (!reachedSecondPoint)
         {
             if (bearAI.Movement.HasReachedDestination())
@@ -122,15 +128,56 @@ public class BearInvestigateSoundState : MonoBehaviour
         }
 
         // Idle на Y
+        if (reachedSecondPoint && !hasThirdPoint)
+        {
+            waitTimer -= Time.deltaTime;
+
+            if (waitTimer <= 0f)
+            {
+                if (TryGetSecondPoint(out Vector3 point))
+                {
+                    thirdPoint = point;
+                    hasThirdPoint = true;
+
+                    bearAI.Movement.MoveTo(thirdPoint);
+
+                    Debug.Log(
+                        "Second circle point Z: " +
+                        thirdPoint
+                    );
+                }
+            }
+
+            return;
+        }
+
+        // Рух до Z
+        if (!reachedThirdPoint)
+        {
+            if (bearAI.Movement.HasReachedDestination())
+            {
+                reachedThirdPoint = true;
+                waitTimer = waitAtSecondPoint;
+
+                bearAI.Movement.Stop();
+
+                Debug.Log(
+                    "Bear reached third point Z. Idle for 5 seconds."
+                );
+            }
+
+            return;
+        }
+
+        // Idle на Z
         waitTimer -= Time.deltaTime;
 
         if (waitTimer <= 0f)
         {
             Debug.Log(
-                "Bear finished second investigation point."
+                "Bear finished second circle search."
             );
 
-            // Поки що просто залишаємося в цьому стані.
             waitTimer = float.PositiveInfinity;
         }
     }
@@ -142,7 +189,10 @@ public class BearInvestigateSoundState : MonoBehaviour
 
         reachedFirstPoint = false;
         reachedSecondPoint = false;
+        reachedThirdPoint = false;
+
         hasSecondPoint = false;
+        hasThirdPoint = false;
 
         bearAI.Movement.MoveTo(
             investigationPoint

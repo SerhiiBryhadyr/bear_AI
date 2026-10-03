@@ -21,6 +21,8 @@ public class BearStateMachine : MonoBehaviour
         investigateSoundState = GetComponent<BearInvestigateSoundState>();
         searchState = GetComponent<BearSearchState>();
         searchLastKnownState = GetComponent<BearSearchLastKnownState>();
+
+        DisableAllStates();
     }
 
     private void Start()
@@ -41,6 +43,27 @@ public class BearStateMachine : MonoBehaviour
         EnableNewState();
 
         Debug.Log("Bear state changed to: " + CurrentState);
+    }
+
+    private void DisableAllStates()
+    {
+        if (idleState != null)
+            idleState.enabled = false;
+
+        if (patrolState != null)
+            patrolState.enabled = false;
+
+        if (trackingState != null)
+            trackingState.enabled = false;
+
+        if (investigateSoundState != null)
+            investigateSoundState.enabled = false;
+
+        if (searchState != null)
+            searchState.enabled = false;
+
+        if (searchLastKnownState != null)
+            searchLastKnownState.enabled = false;
     }
 
     private void DisableCurrentState()

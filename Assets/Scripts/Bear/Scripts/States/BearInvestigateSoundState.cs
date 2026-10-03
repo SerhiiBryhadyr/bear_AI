@@ -173,13 +173,15 @@ public class BearInvestigateSoundState : MonoBehaviour
         waitTimer -= Time.deltaTime;
 
         if (waitTimer <= 0f)
-        {
-            Debug.Log(
-                "Bear finished second circle search."
-            );
+{
+        Debug.Log(
+           "Bear finished second circle search. Returning to patrol."
+       );
 
-            waitTimer = float.PositiveInfinity;
-        }
+        bearAI.StateMachine.ChangeState(
+            BearState.Patrol
+        );
+}
     }
 
     public void SetInvestigationPoint(Vector3 point)

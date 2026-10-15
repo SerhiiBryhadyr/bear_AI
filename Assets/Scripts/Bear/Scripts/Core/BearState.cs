@@ -2,7 +2,8 @@ public enum BearState
 {
     Idle,
     Patrol,
-    FollowPlayer,
+    Tracking,
     InvestigateSound,
+    Search,
     SearchLastKnown
 }

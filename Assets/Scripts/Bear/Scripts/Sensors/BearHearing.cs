@@ -2,8 +2,6 @@ using UnityEngine;
 
 public class BearHearing : MonoBehaviour
 {
-    public float hearingDistance = 10f;
-
     private BearAI bearAI;
     private BearInvestigationSystem investigationSystem;
     private BearInvestigateSoundState investigateSoundState;
@@ -17,52 +15,51 @@ public class BearHearing : MonoBehaviour
 
     public void HearSound(SoundEvent soundEvent)
     {
-        float distance = Vector3.Distance(
-            transform.position,
-            soundEvent.Position
-        );
-
-        float effectiveHearingDistance =
-            hearingDistance * soundEvent.Loudness;
-
-        if (distance > effectiveHearingDistance)
-        {
-            Debug.Log(
-                "Bear did NOT hear sound. " +
-                "Distance = " + distance +
-                ", Hearing Distance = " + effectiveHearingDistance
-            );
-
-            return;
-        }
-
         Debug.Log(
             "Bear heard sound: " +
             "Position = " + soundEvent.Position +
             ", Type = " + soundEvent.Type +
-            ", Loudness = " + soundEvent.Loudness +
-            ", Distance = " + distance +
-            ", Hearing Distance = " + effectiveHearingDistance
+            ", Loudness = " + soundEvent.Loudness
         );
 
         if (bearAI == null)
             return;
 
-        if (bearAI.StateMachine.CurrentState == BearState.FollowPlayer)
+        // While the bear sees and tracks the player, sounds do not distract it.
+        if (bearAI.StateMachine.CurrentState == BearState.Tracking)
+        {
+            Debug.Log("Bear heard sound, ignored (tracking)");
+            return;
+        }
+
+        if (investigationSystem == null)
             return;
 
-        if (investigationSystem == null || investigateSoundState == null)
+        if (investigateSoundState == null)
             return;
 
         if (!investigationSystem.TryGetInvestigationPoint(
                 soundEvent.Position,
                 out Vector3 investigationPoint))
         {
+            Debug.Log(
+                "Bear could not find an investigation point."
+            );
+
             return;
         }
 
-        investigateSoundState.SetInvestigationPoint(investigationPoint);
+        bearAI.StateMachine.ChangeState(
+            BearState.InvestigateSound
+        );
 
-        bearAI.StateMachine.ChangeState(BearState.InvestigateSound);
+        investigateSoundState.SetInvestigationPoint(
+            investigationPoint
+        );
+
+        Debug.Log(
+            "Bear investigation point: " +
+            investigationPoint
+        );
     }
 }

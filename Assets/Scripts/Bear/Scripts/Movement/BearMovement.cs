@@ -6,6 +6,7 @@ public class BearMovement : MonoBehaviour
     private NavMeshAgent agent;
 
     private Animator animator;
+    private float baseSpeed;          // agent speed from the Inspector
 
     public bool IsMoving => agent != null && agent.velocity.magnitude > 0.1f;
 
@@ -13,6 +14,9 @@ public class BearMovement : MonoBehaviour
 {
     agent = GetComponent<NavMeshAgent>();
     animator = GetComponent<Animator>();
+
+    if (agent != null)
+        baseSpeed = agent.speed;
 }
 
     public void MoveTo(Vector3 position)
@@ -45,6 +49,49 @@ public class BearMovement : MonoBehaviour
             return false;
 
         return agent.remainingDistance <= agent.stoppingDistance + 0.1f;
+    }
+
+    // ---------------------------------------------------------------
+    // Speed: 1 = normal (Inspector value), 0.5 = slow walk.
+    // States that slow the bear down reset it to 1 when they end.
+    // ---------------------------------------------------------------
+    public void SetSpeedMultiplier(float multiplier)
+    {
+        if (agent == null)
+            return;
+
+        agent.speed = baseSpeed * multiplier;
+    }
+
+    // ---------------------------------------------------------------
+    // Turning in place. NavMeshAgent turns the bear only while walking,
+    // so standing reactions (stare, after retreat) use these.
+    // ---------------------------------------------------------------
+    public void FaceTowards(Vector3 point, float degreesPerSecond)
+    {
+        Vector3 direction = point - transform.position;
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude < 0.01f)
+            return;
+
+        Quaternion targetRotation = Quaternion.LookRotation(direction);
+        transform.rotation = Quaternion.RotateTowards(
+            transform.rotation,
+            targetRotation,
+            degreesPerSecond * Time.deltaTime
+        );
+    }
+
+    public bool IsFacing(Vector3 point, float maxAngle)
+    {
+        Vector3 direction = point - transform.position;
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude < 0.01f)
+            return true;
+
+        return Vector3.Angle(transform.forward, direction) <= maxAngle;
     }
 
     private void Update()

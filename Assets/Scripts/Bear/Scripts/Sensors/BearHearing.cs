@@ -25,6 +25,13 @@ public class BearHearing : MonoBehaviour
         if (bearAI == null)
             return;
 
+        // While the bear sees and tracks the player, sounds do not distract it.
+        if (bearAI.StateMachine.CurrentState == BearState.Tracking)
+        {
+            Debug.Log("Bear heard sound, ignored (tracking)");
+            return;
+        }
+
         if (investigationSystem == null)
             return;
 

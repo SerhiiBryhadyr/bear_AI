@@ -7,203 +7,225 @@ public enum DominanceLevel
     High
 }
 
+// =====================================================================
+// PlayerDominance (layer 1 of D-02, rules from D-01)
+// Turns facts from PlayerBehaviorTracker into a dominance score 0-1
+// and a level Low / Medium / High that the bear reacts to.
+// It does not observe the player itself - that is the tracker's job.
+// =====================================================================
 public class PlayerDominance : MonoBehaviour
 {
-    [Header("Dominance")]
+    [Header("Current value (watch in Play mode)")]
     [Range(0f, 1f)]
     public float playerDominance = 0.5f;
 
-    public DominanceLevel CurrentLevel { get; private set; }
+    public DominanceLevel CurrentLevel { get; private set; } = DominanceLevel.Medium;
+    public float TargetDominance { get; private set; } = 0.5f;   // instant score this frame
 
-    [Header("References")]
-    [SerializeField] private Camera playerCamera;
-
-    private PlayerAwareness playerAwareness;
-    private Transform bear;
-
-    [Header("Looking")]
-    [Range(0f, 180f)]
-    public float lookAngle = 45f;
-
-    [Range(0f, 180f)]
-    public float turnedAwayAngle = 120f;
-
-    [Header("Movement")]
-    public float movementThreshold = 0.15f;
-    public float retreatDirectionThreshold = 0.5f;
-
-    [Header("Dominance Thresholds")]
+    [Header("Base")]
     [Range(0f, 1f)]
-    public float lowThreshold = 0.35f;
+    public float baseScore = 0.5f;
 
+    [Header("Positive factors (D-01)")]
+    public float standingBonus = 0.10f;
+    public float backingAwayBonus = 0.20f;
+    public float lookAtBearBonus = 0.15f;
+    public float calmCameraBonus = 0.05f;
+    [Tooltip("0 for now: flashlight effect is undecided (D-01).")]
+    public float flashlightBonus = 0f;
+
+    [Header("Negative factors (D-01)")]
+    public float notLookingPenalty = 0.10f;
+    [Tooltip("Normal walking near the bear: High only for standing or careful retreat.")]
+    public float walkingPenalty = 0.10f;
+    public float backTurnedPenalty = 0.15f;
+    public float chaoticCameraPenalty = 0.20f;
+    public float runningPenalty = 0.35f;
+    public float towardBearPenalty = 0.20f;
+
+    [Header("Camera thresholds, deg/s (calibrated 15.10: calm 0-30, normal turns 40-120, nervous 130-340)")]
+    public float calmCameraMaxSpeed = 30f;
+    public float chaoticCameraMinSpeed = 130f;
+
+    [Header("Accumulation, per second")]
+    public float riseSpeed = 0.15f;          // calm is earned slowly
+    public float fallSpeed = 0.40f;          // panic shows almost at once
+    public float neutralReturnSpeed = 0.10f; // drift to base when bear is far
+    public float awarenessDistance = 25f;
+
+    [Header("Levels")]
     [Range(0f, 1f)]
-    public float highThreshold = 0.65f;
+    public float lowLevelThreshold = 0.3f;
+    [Range(0f, 1f)]
+    public float highLevelThreshold = 0.6f;
+    [Range(0f, 0.1f)]
+    public float levelHysteresis = 0.03f;    // stops level flickering on a border
 
-    [Header("Behavior Factors")]
-    public float lookingAtBearBonus = 0.1f;
-    public float controlledRetreatBonus = 0.15f;
-    public float turningAwayPenalty = 0.25f;
-    public float lookingAwayPenalty = 0.1f;
-    public float movingTowardBearBonus = 0.05f;
+    [Header("Layer hooks (D-02) - layers 2 and 3 will change these")]
+    [Tooltip("Layer 2 (habituation) will lower it for repeated tactics.")]
+    public float positiveMultiplier = 1f;
+    [Tooltip("Layer 3 (anger phase) will turn High off.")]
+    public bool allowHighLevel = true;
 
-    public bool IsLookingAtBear { get; private set; }
-    public bool IsBackingAwayWhileWatching { get; private set; }
-    public bool IsTurningAwayAndRetreating { get; private set; }
+    [Header("Debug")]
+    public bool debugLogs = true;
+    public float debugLogInterval = 1f;
 
+    private PlayerBehaviorTracker tracker;
+    private float debugTimer;
+
+    // ---------------------------------------------------------------
+    // Setup.
+    // ---------------------------------------------------------------
     private void Awake()
     {
-        playerAwareness = GetComponent<PlayerAwareness>();
+        tracker = GetComponent<PlayerBehaviorTracker>();
 
-        if (playerCamera == null)
-            playerCamera = Camera.main;
+        if (tracker == null)
+        {
+            Debug.LogWarning(
+                "PlayerDominance: PlayerBehaviorTracker is missing on Player - added automatically. " +
+                "Add it in the Inspector to keep its settings."
+            );
+
+            tracker = gameObject.AddComponent<PlayerBehaviorTracker>();
+        }
     }
 
     private void Start()
     {
-        GameObject bearObject = GameObject.Find("Bear Animated");
-
-        if (bearObject != null)
-        {
-            bear = bearObject.transform;
-        }
-        else
-        {
-            Debug.LogWarning(
-                "PlayerDominance: Bear Animated was not found. " +
-                "Make sure the BearAI scene is loaded and the bear is active."
-            );
-        }
-
-        if (playerAwareness == null)
-        {
-            Debug.LogError(
-                "PlayerDominance: PlayerAwareness is missing from Player."
-            );
-        }
-
-        if (playerCamera == null)
-        {
-            Debug.LogError(
-                "PlayerDominance: Player camera was not found. " +
-                "Assign Main Camera in the Inspector."
-            );
-        }
-
-        UpdateDominanceLevel();
+        CurrentLevel = LevelWithoutHysteresis(playerDominance);
     }
 
+    // ---------------------------------------------------------------
+    // Main loop: near the bear - move toward the instant score;
+    // far from the bear - slowly return to neutral.
+    // ---------------------------------------------------------------
     private void Update()
     {
-        if (playerAwareness == null || bear == null || playerCamera == null)
+        if (!tracker.HasBear)
             return;
 
-        CalculateDominance();
-    }
+        bool bearIsNear = tracker.DistanceToBear <= awarenessDistance;
 
-    private void CalculateDominance()
-    {
-        float score = 0.5f;
-
-        Vector3 directionToBear = bear.position - transform.position;
-        directionToBear.y = 0f;
-
-        Vector3 cameraForward = playerCamera.transform.forward;
-        cameraForward.y = 0f;
-
-        if (directionToBear.sqrMagnitude < 0.001f ||
-            cameraForward.sqrMagnitude < 0.001f)
+        if (bearIsNear)
         {
-            return;
+            TargetDominance = CalculateTargetScore();
+
+            float speed = TargetDominance > playerDominance ? riseSpeed : fallSpeed;
+            playerDominance = Mathf.MoveTowards(playerDominance, TargetDominance, speed * Time.deltaTime);
+        }
+        else
+        {
+            TargetDominance = baseScore;
+            playerDominance = Mathf.MoveTowards(playerDominance, baseScore, neutralReturnSpeed * Time.deltaTime);
         }
 
-        directionToBear.Normalize();
-        cameraForward.Normalize();
+        UpdateLevel();
+        WriteDebugLog(bearIsNear);
+    }
 
-        float viewAngle = Vector3.Angle(
-            cameraForward,
-            directionToBear
+    // ---------------------------------------------------------------
+    // Instant score: base + everything that is true right now.
+    // Plus and minus are summed separately so layer 2 can weaken
+    // only the plus part (positiveMultiplier).
+    // ---------------------------------------------------------------
+    private float CalculateTargetScore()
+    {
+        float positive = 0f;
+        float negative = 0f;
+
+        if (tracker.IsStanding) positive += standingBonus;
+        if (tracker.IsBackingAway) positive += backingAwayBonus;
+
+        if (tracker.IsLookingAtBear) positive += lookAtBearBonus;
+        else negative += notLookingPenalty;
+
+        if (tracker.IsBackTurned && !tracker.IsStanding) negative += backTurnedPenalty;
+
+        float cameraSpeed = tracker.CameraAngularSpeed;
+        if (cameraSpeed <= calmCameraMaxSpeed) positive += calmCameraBonus;
+        else if (cameraSpeed >= chaoticCameraMinSpeed) negative += chaoticCameraPenalty;
+
+        if (tracker.IsFlashlightOnBear) positive += flashlightBonus;
+
+        if (tracker.IsWalking) negative += walkingPenalty;
+        if (tracker.IsRunning) negative += runningPenalty;
+        if (tracker.IsMovingTowardBear) negative += towardBearPenalty;
+
+        return Mathf.Clamp01(baseScore + positive * positiveMultiplier - negative);
+    }
+
+    // ---------------------------------------------------------------
+    // Level with hysteresis: to change level the value must cross the
+    // border by levelHysteresis, so it does not flicker.
+    // ---------------------------------------------------------------
+    private void UpdateLevel()
+    {
+        float v = playerDominance;
+        float h = levelHysteresis;
+        DominanceLevel newLevel = CurrentLevel;
+
+        switch (CurrentLevel)
+        {
+            case DominanceLevel.Low:
+                if (v > highLevelThreshold + h) newLevel = DominanceLevel.High;
+                else if (v > lowLevelThreshold + h) newLevel = DominanceLevel.Medium;
+                break;
+
+            case DominanceLevel.Medium:
+                if (v < lowLevelThreshold - h) newLevel = DominanceLevel.Low;
+                else if (v > highLevelThreshold + h) newLevel = DominanceLevel.High;
+                break;
+
+            case DominanceLevel.High:
+                if (v < lowLevelThreshold - h) newLevel = DominanceLevel.Low;
+                else if (v < highLevelThreshold - h) newLevel = DominanceLevel.Medium;
+                break;
+        }
+
+        if (!allowHighLevel && newLevel == DominanceLevel.High)
+            newLevel = DominanceLevel.Medium;
+
+        if (newLevel != CurrentLevel)
+        {
+            if (debugLogs)
+                Debug.Log($"[Dominance] LEVEL {CurrentLevel} -> {newLevel} ({v:0.00})");
+
+            CurrentLevel = newLevel;
+        }
+    }
+
+    private DominanceLevel LevelWithoutHysteresis(float v)
+    {
+        if (v < lowLevelThreshold) return DominanceLevel.Low;
+        if (v > highLevelThreshold && allowHighLevel) return DominanceLevel.High;
+        return DominanceLevel.Medium;
+    }
+
+    // ---------------------------------------------------------------
+    // Debug: one line per interval with value, target and reasons.
+    // Claude reads these from Editor.log.
+    // ---------------------------------------------------------------
+    private void WriteDebugLog(bool bearIsNear)
+    {
+        if (!debugLogs)
+            return;
+
+        debugTimer -= Time.deltaTime;
+        if (debugTimer > 0f)
+            return;
+
+        debugTimer = debugLogInterval;
+
+        Debug.Log(
+            $"[Dominance] {playerDominance:0.00} -> {TargetDominance:0.00} [{CurrentLevel}] " +
+            $"dist {tracker.DistanceToBear:0.0}{(bearIsNear ? "" : " (far)")} | " +
+            $"stand {B(tracker.IsStanding)} walk {B(tracker.IsWalking)} back {B(tracker.IsBackingAway)} run {B(tracker.IsRunning)} " +
+            $"look {B(tracker.IsLookingAtBear)} backTurned {B(tracker.IsBackTurned)} toward {B(tracker.IsMovingTowardBear)} | " +
+            $"cam {tracker.CameraAngularSpeed:0}deg/s"
         );
-
-        IsLookingAtBear = viewAngle <= lookAngle;
-        IsBackingAwayWhileWatching = false;
-        IsTurningAwayAndRetreating = false;
-
-        Vector3 movementDirection = playerAwareness.Direction;
-        float speed = playerAwareness.Speed;
-
-        bool isMoving = speed >= movementThreshold;
-        float movementDot = 0f;
-
-        if (isMoving && movementDirection.sqrMagnitude > 0.001f)
-        {
-            movementDirection.y = 0f;
-            movementDirection.Normalize();
-
-            // Positive: moving away from the bear.
-            // Negative: moving toward the bear.
-            Vector3 directionAwayFromBear = -directionToBear;
-
-            movementDot = Vector3.Dot(
-                movementDirection,
-                directionAwayFromBear
-            );
-        }
-
-        if (IsLookingAtBear)
-        {
-            score += lookingAtBearBonus;
-        }
-        else
-        {
-            score -= lookingAwayPenalty;
-        }
-
-        if (isMoving && movementDot > retreatDirectionThreshold)
-        {
-            if (IsLookingAtBear)
-            {
-                // The player retreats while maintaining visual contact.
-                IsBackingAwayWhileWatching = true;
-                score += controlledRetreatBonus;
-            }
-            else if (viewAngle >= turnedAwayAngle)
-            {
-                // The player turns their back and moves away.
-                IsTurningAwayAndRetreating = true;
-                score -= turningAwayPenalty;
-            }
-            else
-            {
-                // The player retreats without clearly watching the bear.
-                score -= lookingAwayPenalty;
-            }
-        }
-        else if (isMoving && movementDot < -retreatDirectionThreshold)
-        {
-            // Moving toward the bear is not the same as fleeing.
-            // Running toward the bear will be handled separately later.
-            if (IsLookingAtBear)
-                score += movingTowardBearBonus;
-        }
-
-        playerDominance = Mathf.Clamp01(score);
-
-        UpdateDominanceLevel();
     }
 
-    private void UpdateDominanceLevel()
-    {
-        if (playerDominance < lowThreshold)
-        {
-            CurrentLevel = DominanceLevel.Low;
-        }
-        else if (playerDominance <= highThreshold)
-        {
-            CurrentLevel = DominanceLevel.Medium;
-        }
-        else
-        {
-            CurrentLevel = DominanceLevel.High;
-        }
-    }
+    private static string B(bool value) => value ? "1" : "0";
 }

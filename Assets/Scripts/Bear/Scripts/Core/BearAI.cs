@@ -1,5 +1,8 @@
 using UnityEngine;
 
+// Runs before all other bear scripts: states use StateMachine / Movement
+// from here, so these references must be ready first.
+[DefaultExecutionOrder(-200)]
 public class BearAI : MonoBehaviour
 {
     public BearStateMachine StateMachine { get; private set; }

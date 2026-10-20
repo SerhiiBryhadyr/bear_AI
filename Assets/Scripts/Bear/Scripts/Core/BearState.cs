@@ -4,6 +4,5 @@ public enum BearState
     Patrol,
     Tracking,
     InvestigateSound,
-    Search,
     SearchLastKnown
 }

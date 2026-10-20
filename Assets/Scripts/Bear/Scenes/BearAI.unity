@@ -211,9 +211,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5e79d270ddf75429983d0b8361bd053d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  hearingDistance: 10
-  minSearchRadius: 2
-  maxSearchRadius: 10
+  retargetMinDistance: 6
+  retargetCooldown: 2
+  logIgnoredSounds: 0
 --- !u!114 &694889767
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -221,11 +221,14 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 694889739}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1bd1bf7d1da25499396e0a0fabf99233, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  waitAtInvestigationPoint: 5
+  secondSearchRadius: 10
+  waitAtSecondPoint: 5
 --- !u!114 &694889768
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -238,7 +241,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7ca38f5ac14864d76854fbc969e7819a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  investigationRadius: 5
+  localizationRadius: 5
 --- !u!114 &694889782
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -246,27 +249,20 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 694889739}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a633dc2da0a7c47bebf924b7676cbc5b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   predictionTime: 0.6
   decisionInterval: 0.3
---- !u!114 &694889795
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 694889739}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: cd938fed04d3e42459abd9749450f3d3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  defaultSearchRadius: 5
-  searchDuration: 5
+  minReactionTime: 2
+  lostSightGraceTime: 1
+  lowStopDistance: 2.5
+  lowSpeedMultiplier: 1
+  mediumStopDistance: 6
+  mediumSpeedMultiplier: 0.5
+  turnSpeed: 180
 --- !u!1 &728657698
 GameObject:
   m_ObjectHideFlags: 0
@@ -656,6 +652,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 2432892661834225464, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+    - {fileID: 5529874966669008819, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents:
@@ -671,9 +668,6 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       insertIndex: -1
       addedObject: {fileID: 694889782}
-    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 694889795}
   m_SourcePrefab: {fileID: 100100000, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

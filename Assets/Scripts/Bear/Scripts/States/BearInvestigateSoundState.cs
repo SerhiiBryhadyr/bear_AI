@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.AI;
 
 public class BearInvestigateSoundState : MonoBehaviour
 {
@@ -206,41 +205,20 @@ public class BearInvestigateSoundState : MonoBehaviour
         );
     }
 
+    // Points Y and Z: random walkable points in the second circle around X.
     private bool TryGetSecondPoint(out Vector3 point)
     {
-        for (int i = 0; i < 10; i++)
+        if (BearNavMeshUtils.TryGetRandomPoint(investigationPoint, secondSearchRadius, out point))
         {
-            Vector2 randomOffset =
-                Random.insideUnitCircle * secondSearchRadius;
-
-            Vector3 randomPoint =
+            Debug.Log(
+                "Second circle center X: " +
                 investigationPoint +
-                new Vector3(
-                    randomOffset.x,
-                    0f,
-                    randomOffset.y
-                );
+                " | Radius: " +
+                secondSearchRadius
+            );
 
-            if (NavMesh.SamplePosition(
-                randomPoint,
-                out NavMeshHit hit,
-                5f,
-                NavMesh.AllAreas))
-            {
-                point = hit.position;
-
-                Debug.Log(
-                    "Second circle center X: " +
-                    investigationPoint +
-                    " | Radius: " +
-                    secondSearchRadius
-                );
-
-                return true;
-            }
+            return true;
         }
-
-        point = investigationPoint;
 
         Debug.Log(
             "Could not find valid point inside second circle."

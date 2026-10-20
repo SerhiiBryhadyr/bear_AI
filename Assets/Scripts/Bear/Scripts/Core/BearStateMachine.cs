@@ -1,5 +1,8 @@
 using UnityEngine;
 
+// Runs right after BearAI and before the states: Awake disables every state
+// before any of them can run OnEnable, whatever the Inspector checkboxes say.
+[DefaultExecutionOrder(-100)]
 public class BearStateMachine : MonoBehaviour
 {
     public BearState CurrentState { get; private set; }
@@ -8,7 +11,6 @@ public class BearStateMachine : MonoBehaviour
     private BearPatrolState patrolState;
     private BearTrackingState trackingState;
     private BearInvestigateSoundState investigateSoundState;
-    private BearSearchState searchState;
     private BearSearchLastKnownState searchLastKnownState;
 
     private bool initialized;
@@ -19,7 +21,6 @@ public class BearStateMachine : MonoBehaviour
         patrolState = GetComponent<BearPatrolState>();
         trackingState = GetComponent<BearTrackingState>();
         investigateSoundState = GetComponent<BearInvestigateSoundState>();
-        searchState = GetComponent<BearSearchState>();
         searchLastKnownState = GetComponent<BearSearchLastKnownState>();
 
         DisableAllStates();
@@ -59,9 +60,6 @@ public class BearStateMachine : MonoBehaviour
         if (investigateSoundState != null)
             investigateSoundState.enabled = false;
 
-        if (searchState != null)
-            searchState.enabled = false;
-
         if (searchLastKnownState != null)
             searchLastKnownState.enabled = false;
     }
@@ -93,11 +91,6 @@ public class BearStateMachine : MonoBehaviour
                     investigateSoundState.enabled = false;
                 break;
 
-            case BearState.Search:
-                if (searchState != null)
-                    searchState.enabled = false;
-                break;
-
             case BearState.SearchLastKnown:
                 if (searchLastKnownState != null)
                     searchLastKnownState.enabled = false;
@@ -127,11 +120,6 @@ public class BearStateMachine : MonoBehaviour
             case BearState.InvestigateSound:
                 if (investigateSoundState != null)
                     investigateSoundState.enabled = true;
-                break;
-
-            case BearState.Search:
-                if (searchState != null)
-                    searchState.enabled = true;
                 break;
 
             case BearState.SearchLastKnown:

@@ -12,7 +12,6 @@
 !/Assets/
 /Assets/*
 !/Assets/Scripts/
-/Assets/Scripts/*
 !/Assets/Scripts/Bear.meta
 !/Assets/Scripts/Bear/
 !/Assets/Scripts/Bear/**
@@ -35,3 +34,5 @@
 !/ProjectSettings/
 /ProjectSettings/*
 !/ProjectSettings/TagManager.asset
+
+.DS_Store

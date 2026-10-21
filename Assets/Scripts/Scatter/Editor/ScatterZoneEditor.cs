@@ -4,11 +4,24 @@ using UnityEngine;
 // ============================================================
 // Inspector і Scene view для ScatterZone:
 // кнопки Generate / New Seed / Clear і малювання контуру мишкою.
+// Shift + тягни: режим «Прямокутник» — з кута в кут; «Ласо» — обвести край, як олівцем.
+// Зона показується напівпрозорою заливкою на рельєфі.
 // ============================================================
 [CustomEditor(typeof(ScatterZone))]
 public class ScatterZoneEditor : Editor
 {
     static readonly Color OutlineColor = new Color(1f, 0.6f, 0f);
+    static readonly Color FillColor = new Color(1f, 0.6f, 0f, 0.18f);   // заливка зони
+    static readonly Color PreviewColor = new Color(1f, 0.85f, 0.2f, 0.28f); // заливка під час малювання
+
+    // Режим малювання (запам'ятовується в редакторі, на гру не впливає)
+    enum DrawMode { Rectangle, Lasso }
+    static readonly string[] DrawModeNames = { "Прямокутник (з кута в кут)", "Ласо (обвести край)" };
+    static DrawMode Mode
+    {
+        get => (DrawMode)EditorPrefs.GetInt("Scatter.DrawMode", 0);
+        set => EditorPrefs.SetInt("Scatter.DrawMode", (int)value);
+    }
     const float PickPixels = 12f; // наскільки близько (у пікселях) клікнути до точки, щоб її видалити
     const float LassoStep = 2f;   // крок між точками, коли контур малюється протягуванням (м)
 
@@ -16,6 +29,8 @@ public class ScatterZoneEditor : Editor
     bool lassoPressed;   // кнопку натиснуто з Shift
     bool lassoDrawing;   // мишка вже рушила — малюємо новий контур
     Vector3 lassoStart;  // точка, де натиснули
+    Vector3 dragCurrent; // де мишка зараз (для прямокутника)
+    readonly System.Collections.Generic.List<Vector3> lassoPoints = new System.Collections.Generic.List<Vector3>(); // ласо до відпускання мишки
 
     // ===== Inspector =====
     public override void OnInspectorGUI()
@@ -24,9 +39,13 @@ public class ScatterZoneEditor : Editor
         var zone = (ScatterZone)target;
 
         EditorGUILayout.Space();
+        Mode = (DrawMode)EditorGUILayout.Popup("Shift + тягни", (int)Mode, DrawModeNames);
         EditorGUILayout.HelpBox(
             "Контур у Scene view:\n" +
-            "• Shift + тягни мишкою — намалювати контур заново\n" +
+            (Mode == DrawMode.Rectangle
+                ? "• Shift + тягни з кута в кут — прямокутна зона\n"
+                : "• Shift + тягни — обвести край зони, як олівцем\n") +
+            "• зона вже засаджена → Shift + тягни створює НОВУ зону поруч, стара лишається\n" +
             "• Shift + клік — додати одну точку\n" +
             "• тягни точку — перемістити\n" +
             "• Ctrl (або Cmd) + клік по точці — видалити\n\n" +
@@ -48,6 +67,9 @@ public class ScatterZoneEditor : Editor
         }
         EditorGUILayout.EndHorizontal();
 
+        if (GUILayout.Button("＋ Нова зона (той самий пресет)"))
+            Selection.activeGameObject = CreateSiblingZone(zone).gameObject;
+
         if (GUILayout.Button("Видалити всі точки контуру"))
         {
             Undo.RecordObject(zone, "Scatter Clear Points");
@@ -59,8 +81,9 @@ public class ScatterZoneEditor : Editor
     // ===== Підписка на Scene view =====
     // Мишку ловимо в beforeSceneGui — це викликається РАНІШЕ, ніж Unity обробляє рамку виділення.
     // Інакше Shift + тягни забирає собі рамка, і до зони нічого не доходить.
-    void OnEnable()  { SceneView.beforeSceneGui += BeforeSceneGUI; }
-    void OnDisable() { SceneView.beforeSceneGui -= BeforeSceneGUI; }
+    // Малюємо через duringSceneGui — він працює, навіть коли в Scene view вимкнено Gizmos.
+    void OnEnable()  { SceneView.beforeSceneGui += BeforeSceneGUI; SceneView.duringSceneGui += DuringSceneGUI; }
+    void OnDisable() { SceneView.beforeSceneGui -= BeforeSceneGUI; SceneView.duringSceneGui -= DuringSceneGUI; }
 
     void BeforeSceneGUI(SceneView view)
     {
@@ -68,11 +91,161 @@ public class ScatterZoneEditor : Editor
         HandleMouse((ScatterZone)target, Event.current);
     }
 
-    // Точки-ручки малюються у звичайному OnSceneGUI
-    void OnSceneGUI()
+    // Заливка, лінія контуру і точки-ручки
+    void DuringSceneGUI(SceneView view)
     {
         if (target == null) return;
-        DrawPointHandles((ScatterZone)target);
+        var zone = (ScatterZone)target;
+
+        if (lassoDrawing && Mode == DrawMode.Rectangle)
+        {
+            // Під час малювання прямокутника — жовта заливка, рамка і розмір
+            Bounds r = RectXZ(lassoStart, dragCurrent);
+            DrawFill(r, p => true, PreviewColor);
+            DrawOutline(new[] { new Vector3(r.min.x, 0, r.min.z), new Vector3(r.max.x, 0, r.min.z),
+                                new Vector3(r.max.x, 0, r.max.z), new Vector3(r.min.x, 0, r.max.z) }, PreviewColor);
+            Handles.Label(Ground(r.center.x, r.center.z) + Vector3.up * 2f,
+                $"{r.size.x:0} × {r.size.z:0} м   {r.size.x * r.size.z:0} м²", EditorStyles.whiteLargeLabel);
+        }
+        else if (lassoDrawing && Mode == DrawMode.Lasso && lassoPoints.Count >= 2)
+        {
+            // Під час ласо — жовта лінія по слідах мишки і заливка всередині
+            var b = new Bounds(lassoPoints[0], Vector3.zero);
+            foreach (var p in lassoPoints) b.Encapsulate(p);
+            if (lassoPoints.Count >= 3) DrawFill(b, p => InsidePolygonXZ(lassoPoints, p), PreviewColor);
+            DrawOutline(lassoPoints.ToArray(), PreviewColor);
+        }
+        else if (zone.showOutline && zone.points.Count >= 2)
+        {
+            var corners = new Vector3[zone.points.Count];
+            for (int i = 0; i < corners.Length; i++) corners[i] = zone.GetWorldPoint(i);
+            if (corners.Length >= 3) DrawFill(zone.GetBoundsXZ(), zone.ContainsXZ, FillColor);
+            DrawOutline(corners, OutlineColor);
+        }
+        DrawPointHandles(zone);
+    }
+
+    // ===== Товста лінія контуру по рельєфу (крок ~1 м) =====
+    static void DrawOutline(Vector3[] corners, Color color)
+    {
+        if (Event.current.type != EventType.Repaint || corners.Length < 2) return;
+        var line = new System.Collections.Generic.List<Vector3>();
+        int n = corners.Length;
+        for (int i = 0; i < n; i++)
+        {
+            Vector3 a = corners[i], b = corners[(i + 1) % n];
+            int steps = Mathf.Clamp(Mathf.CeilToInt(Vector3.Distance(new Vector3(a.x, 0, a.z), new Vector3(b.x, 0, b.z))), 1, 200);
+            for (int s = 0; s < steps; s++)
+            {
+                Vector3 p = Vector3.Lerp(a, b, s / (float)steps);
+                line.Add(Ground(p.x, p.z) + Vector3.up * 0.1f);
+            }
+        }
+        line.Add(line[0]);
+        Handles.color = new Color(color.r, color.g, color.b, 1f);
+        Handles.DrawAAPolyLine(5f, line.ToArray());
+    }
+
+    // ===== Прямокутник з двох кутів → 4 точки контуру =====
+    static void SetRectangle(ScatterZone zone, Vector3 a, Vector3 b)
+    {
+        Bounds r = RectXZ(a, b);
+        if (r.size.x < 1f || r.size.z < 1f) { Debug.LogWarning("[Scatter] Прямокутник замалий (менше 1 м)"); return; }
+        var corners = new System.Collections.Generic.List<Vector3>();
+        foreach (var (x, z) in new[] { (r.min.x, r.min.z), (r.max.x, r.min.z), (r.max.x, r.max.z), (r.min.x, r.max.z) })
+            corners.Add(Ground(x, z));
+        ApplyContour(zone, corners, $"Прямокутник {r.size.x:0} × {r.size.z:0} м");
+    }
+
+    // ===== Записати новий контур у зону =====
+    // Якщо зона вже засаджена — контур іде в НОВУ зону поруч (той самий пресет), стара посадка лишається.
+    static void ApplyContour(ScatterZone zone, System.Collections.Generic.List<Vector3> world, string what)
+    {
+        Transform gen = zone.transform.Find(ScatterZone.GeneratedName);
+        bool planted = gen != null && gen.childCount > 0;
+        if (planted) zone = CreateSiblingZone(zone);
+
+        Undo.RecordObject(zone, "Scatter Draw Outline");
+        zone.points.Clear();
+        foreach (Vector3 p in world) zone.points.Add(zone.transform.InverseTransformPoint(p));
+        if (planted) Selection.activeGameObject = zone.gameObject;
+        Debug.Log($"[Scatter] {what}: площа {zone.AreaXZ():0} м²" + (planted ? $" → нова зона {zone.name}" : $" ({zone.name})"));
+    }
+
+    // ===== Нова зона поруч: той самий батько і пресет, новий seed =====
+    static ScatterZone CreateSiblingZone(ScatterZone from)
+    {
+        string baseName = "Zone_" + (from.preset != null ? from.preset.name.Replace("Preset_", "") : "New");
+        var go = new GameObject(GameObjectUtility.GetUniqueNameForSibling(from.transform.parent, baseName));
+        Undo.RegisterCreatedObjectUndo(go, "Scatter New Zone");
+        Undo.SetTransformParent(go.transform, from.transform.parent, "Scatter New Zone");
+        go.transform.SetPositionAndRotation(from.transform.position, Quaternion.identity);
+        go.transform.localScale = Vector3.one;
+        var zone = Undo.AddComponent<ScatterZone>(go);
+        zone.preset = from.preset;
+        zone.seed = Random.Range(1, 100000);
+        zone.showOutline = from.showOutline;
+        return zone;
+    }
+
+    // Чи точка всередині ламаної (для заливки ласо під час малювання)
+    static bool InsidePolygonXZ(System.Collections.Generic.List<Vector3> poly, Vector3 p)
+    {
+        bool inside = false;
+        for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)
+        {
+            Vector3 a = poly[i], b = poly[j];
+            if ((a.z > p.z) != (b.z > p.z) && p.x < (b.x - a.x) * (p.z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+        }
+        return inside;
+    }
+
+    static Bounds RectXZ(Vector3 a, Vector3 b)
+    {
+        var r = new Bounds(new Vector3(a.x, 0f, a.z), Vector3.zero);
+        r.Encapsulate(new Vector3(b.x, 0f, b.z));
+        return r;
+    }
+
+    // ===== Напівпрозора заливка на рельєфі =====
+    // Сітка клітинок по зоні; клітинка, центр якої всередині, малюється квадратом по висотах terrain.
+    // Розмір клітинки росте з площею, щоб велика зона не гальмувала (≈ до 1500 клітинок).
+    static void DrawFill(Bounds b, System.Func<Vector3, bool> inside, Color color)
+    {
+        if (Event.current.type != EventType.Repaint) return;
+        float cell = Mathf.Max(1f, Mathf.Sqrt(b.size.x * b.size.z / 1500f));
+        int nx = Mathf.Max(1, Mathf.CeilToInt(b.size.x / cell));
+        int nz = Mathf.Max(1, Mathf.CeilToInt(b.size.z / cell));
+
+        // висоти у вузлах сітки — рахуємо один раз
+        var h = new Vector3[nx + 1, nz + 1];
+        for (int i = 0; i <= nx; i++)
+            for (int j = 0; j <= nz; j++)
+                h[i, j] = Ground(b.min.x + i * cell, b.min.z + j * cell);
+
+        var oldZTest = Handles.zTest;
+        Handles.zTest = UnityEngine.Rendering.CompareFunction.LessEqual;   // заливку ховають пагорби й об'єкти
+        Handles.color = color;
+        var quad = new Vector3[4];
+        for (int i = 0; i < nx; i++)
+            for (int j = 0; j < nz; j++)
+            {
+                var center = new Vector3(b.min.x + (i + 0.5f) * cell, 0f, b.min.z + (j + 0.5f) * cell);
+                if (!inside(center)) continue;
+                quad[0] = h[i, j]; quad[1] = h[i + 1, j]; quad[2] = h[i + 1, j + 1]; quad[3] = h[i, j + 1];
+                Handles.DrawAAConvexPolygon(quad);
+                System.Array.Reverse(quad);                // і з іншого боку — щоб не залежати від напрямку обходу
+                Handles.DrawAAConvexPolygon(quad);
+            }
+        Handles.zTest = oldZTest;
+    }
+
+    // Точка на землі + 0.15 м, щоб заливку було видно над terrain
+    static Vector3 Ground(float x, float z)
+    {
+        var p = new Vector3(x, 0f, z);
+        if (ScatterTerrain.SampleGround(p, out float y, out _)) p.y = y;
+        return p + Vector3.up * 0.15f;
     }
 
     // ===== Мишка: Shift + клік / Shift + тягни / Cmd(Ctrl) + клік =====
@@ -109,19 +282,19 @@ public class ScatterZoneEditor : Editor
 
             case EventType.MouseDrag:
                 if (!lassoPressed) break;
+                if (Mode == DrawMode.Rectangle)
+                {
+                    // Прямокутник: лише запам'ятовуємо другий кут, зона зміниться, коли відпустиш мишку
+                    if (MouseToGround(e.mousePosition, out Vector3 corner)) { dragCurrent = corner; lassoDrawing = true; }
+                    SceneView.RepaintAll();
+                    e.Use();
+                    break;
+                }
+                // Ласо: збираємо точки окремо; зона зміниться, коли відпустиш мишку
                 if (MouseToGround(e.mousePosition, out Vector3 dragPoint))
                 {
-                    if (!lassoDrawing)
-                    {
-                        // перший рух — стираємо старий контур і починаємо новий
-                        Undo.RecordObject(zone, "Scatter Draw Outline");
-                        zone.points.Clear();
-                        zone.points.Add(zone.transform.InverseTransformPoint(lassoStart));
-                        lassoDrawing = true;
-                    }
-                    Vector3 last = zone.GetWorldPoint(zone.points.Count - 1);
-                    if (DistXZ(last, dragPoint) >= LassoStep)
-                        zone.points.Add(zone.transform.InverseTransformPoint(dragPoint));
+                    if (!lassoDrawing) { lassoPoints.Clear(); lassoPoints.Add(lassoStart); lassoDrawing = true; }
+                    if (DistXZ(lassoPoints[lassoPoints.Count - 1], dragPoint) >= LassoStep) lassoPoints.Add(dragPoint);
                     SceneView.RepaintAll();
                 }
                 e.Use();
@@ -135,10 +308,15 @@ public class ScatterZoneEditor : Editor
                     Undo.RecordObject(zone, "Scatter Add Point");
                     InsertPoint(zone, zone.transform.InverseTransformPoint(lassoStart));
                 }
-                else
+                else if (Mode == DrawMode.Rectangle)
                 {
-                    Debug.Log($"[Scatter] Контур намальовано: {zone.points.Count} точок, площа {zone.AreaXZ():0} м²");
+                    SetRectangle(zone, lassoStart, dragCurrent);
                 }
+                else if (lassoPoints.Count >= 3)
+                {
+                    ApplyContour(zone, lassoPoints, "Контур намальовано");
+                }
+                else Debug.LogWarning("[Scatter] Ласо закоротке — обведи край зони повністю");
                 lassoPressed = false;
                 lassoDrawing = false;
                 Repaint();               // оновити Inspector (точки і площа)

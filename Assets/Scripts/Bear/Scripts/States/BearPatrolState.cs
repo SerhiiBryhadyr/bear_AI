@@ -1,18 +1,20 @@
 using UnityEngine;
 
-public class BearPatrolState : MonoBehaviour
+// =====================================================================
+// BearPatrolState - mode Unknown. Walks to a random patrol point,
+// on arrival -> Idle.
+// =====================================================================
+public class BearPatrolState : BearStateBehaviour
 {
-    private BearAI bearAI;
-    private BearPatrolSystem patrolSystem;
-    private BearVision vision;
+    public override BearState Id => BearState.Patrol;
 
+    private BearPatrolSystem patrolSystem;
     private Transform currentPoint;
 
-    private void Awake()
+    protected override void Awake()
     {
-        bearAI = GetComponent<BearAI>();
+        base.Awake();
         patrolSystem = GetComponent<BearPatrolSystem>();
-        vision = GetComponent<BearVision>();
     }
 
     private void OnEnable()
@@ -22,38 +24,24 @@ public class BearPatrolState : MonoBehaviour
 
     private void Update()
     {
-        // Check if the bear sees the player.
-        if (vision != null && vision.CanSeePlayer())
-        {
-            Debug.Log("Bear saw player!");
-
-            bearAI.SetLastKnownPlayerPosition(vision.player.position);
-            bearAI.StateMachine.ChangeState(BearState.Tracking);
-
-            return;
-        }
-
         if (currentPoint == null)
             return;
 
-        if (bearAI.Movement.HasReachedDestination())
-        {
-            bearAI.StateMachine.ChangeState(BearState.Idle);
-        }
+        if (Movement.HasReachedDestination())
+            ChangeState(BearState.Idle);
     }
 
     private void ChooseNewPoint()
     {
-        if (patrolSystem == null)
-            return;
+        currentPoint = patrolSystem != null ? patrolSystem.GetRandomPoint() : null;
 
-        currentPoint = patrolSystem.GetRandomPoint();
-
-        if (currentPoint != null)
+        if (currentPoint == null)
         {
-            bearAI.Movement.MoveTo(currentPoint.position);
-
-            Debug.Log("Bear patrol target: " + currentPoint.name);
+            Debug.LogWarning("BearPatrolState: no patrol points - the bear stays where it is.");
+            return;
         }
+
+        Movement.MoveTo(currentPoint.position);
+        Debug.Log("Bear patrol target: " + currentPoint.name);
     }
 }

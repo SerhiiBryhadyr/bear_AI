@@ -1,131 +1,85 @@
+using System.Collections.Generic;
 using UnityEngine;
 
-// Runs right after BearAI and before the states: Awake disables every state
-// before any of them can run OnEnable, whatever the Inspector checkboxes say.
+// =====================================================================
+// BearStateMachine - the switch: exactly one state is enabled.
+//
+// Awake: collects every BearStateBehaviour on the bear into a dictionary
+//        "name -> component" and disables them all (whatever the
+//        Inspector checkboxes say).
+// ChangeState: disables the current state, enables the new one.
+//
+// The machine does not know the concrete states. A new state needs no
+// changes here (the old version had three switch blocks).
+//
+// Runs right after BearAI and before the states, so all states are
+// disabled before any of them can run OnEnable.
+// =====================================================================
 [DefaultExecutionOrder(-100)]
 public class BearStateMachine : MonoBehaviour
 {
+    [Tooltip("State the bear starts in.")]
+    public BearState initialState = BearState.Idle;
+
     public BearState CurrentState { get; private set; }
 
-    private BearIdleState idleState;
-    private BearPatrolState patrolState;
-    private BearTrackingState trackingState;
-    private BearInvestigateSoundState investigateSoundState;
-    private BearSearchLastKnownState searchLastKnownState;
+    private readonly Dictionary<BearState, BearStateBehaviour> states =
+        new Dictionary<BearState, BearStateBehaviour>();
 
-    private bool initialized;
+    private BearStateBehaviour current;
 
+    // ---------------------------------------------------------------
+    // Find all states on the bear.
+    // ---------------------------------------------------------------
     private void Awake()
     {
-        idleState = GetComponent<BearIdleState>();
-        patrolState = GetComponent<BearPatrolState>();
-        trackingState = GetComponent<BearTrackingState>();
-        investigateSoundState = GetComponent<BearInvestigateSoundState>();
-        searchLastKnownState = GetComponent<BearSearchLastKnownState>();
+        foreach (BearStateBehaviour state in GetComponents<BearStateBehaviour>())
+        {
+            state.enabled = false;
 
-        DisableAllStates();
+            if (states.ContainsKey(state.Id))
+            {
+                Debug.LogError("[StateMachine] Two components claim state " + state.Id +
+                               ". The second one (" + state.GetType().Name + ") is ignored.");
+                continue;
+            }
+
+            states.Add(state.Id, state);
+        }
     }
 
     private void Start()
     {
-        ChangeState(BearState.Idle);
+        ChangeState(initialState);
     }
 
+    // ---------------------------------------------------------------
+    // Switch: old state off -> new state on.
+    // Switching to the state that is already active does nothing.
+    // ---------------------------------------------------------------
     public void ChangeState(BearState newState)
     {
-        if (initialized && CurrentState == newState)
+        if (current != null && CurrentState == newState)
             return;
 
-        DisableCurrentState();
+        if (!states.TryGetValue(newState, out BearStateBehaviour next))
+        {
+            Debug.LogError("[StateMachine] No component for state " + newState + " on the bear.");
+            return;
+        }
 
+        BearState previous = CurrentState;
+        bool isFirstState = current == null;
+
+        if (current != null)
+            current.enabled = false;
+
+        current = next;
         CurrentState = newState;
-        initialized = true;
+        current.enabled = true;     // runs the new state's OnEnable
 
-        EnableNewState();
-
-        Debug.Log("Bear state changed to: " + CurrentState);
-    }
-
-    private void DisableAllStates()
-    {
-        if (idleState != null)
-            idleState.enabled = false;
-
-        if (patrolState != null)
-            patrolState.enabled = false;
-
-        if (trackingState != null)
-            trackingState.enabled = false;
-
-        if (investigateSoundState != null)
-            investigateSoundState.enabled = false;
-
-        if (searchLastKnownState != null)
-            searchLastKnownState.enabled = false;
-    }
-
-    private void DisableCurrentState()
-    {
-        if (!initialized)
-            return;
-
-        switch (CurrentState)
-        {
-            case BearState.Idle:
-                if (idleState != null)
-                    idleState.enabled = false;
-                break;
-
-            case BearState.Patrol:
-                if (patrolState != null)
-                    patrolState.enabled = false;
-                break;
-
-            case BearState.Tracking:
-                if (trackingState != null)
-                    trackingState.enabled = false;
-                break;
-
-            case BearState.InvestigateSound:
-                if (investigateSoundState != null)
-                    investigateSoundState.enabled = false;
-                break;
-
-            case BearState.SearchLastKnown:
-                if (searchLastKnownState != null)
-                    searchLastKnownState.enabled = false;
-                break;
-        }
-    }
-
-    private void EnableNewState()
-    {
-        switch (CurrentState)
-        {
-            case BearState.Idle:
-                if (idleState != null)
-                    idleState.enabled = true;
-                break;
-
-            case BearState.Patrol:
-                if (patrolState != null)
-                    patrolState.enabled = true;
-                break;
-
-            case BearState.Tracking:
-                if (trackingState != null)
-                    trackingState.enabled = true;
-                break;
-
-            case BearState.InvestigateSound:
-                if (investigateSoundState != null)
-                    investigateSoundState.enabled = true;
-                break;
-
-            case BearState.SearchLastKnown:
-                if (searchLastKnownState != null)
-                    searchLastKnownState.enabled = true;
-                break;
-        }
+        Debug.Log(isFirstState
+            ? "[StateMachine] start: " + newState
+            : "[StateMachine] " + previous + " -> " + newState);
     }
 }

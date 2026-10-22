@@ -1,49 +1,32 @@
 using UnityEngine;
 
-public class BearIdleState : MonoBehaviour
+// =====================================================================
+// BearIdleState - mode Unknown. The bear stands for idleTime seconds,
+// then goes on patrol.
+// Vision is no longer checked here: BearKnowledge sees the player in
+// any state, and BearBrain switches the bear to Tracking.
+// =====================================================================
+public class BearIdleState : BearStateBehaviour
 {
+    public override BearState Id => BearState.Idle;
+
     public float idleTime = 6.66f;
 
-    private BearAI bearAI;
-    private BearVision vision;
     private float timer;
-
-    private void Awake()
-    {
-        bearAI = GetComponent<BearAI>();
-        vision = GetComponent<BearVision>();
-    }
 
     private void OnEnable()
     {
         timer = idleTime;
-
-        if (bearAI != null && bearAI.Movement != null)
-        {
-            bearAI.Movement.Stop();
-        }
+        Movement.Stop();
 
         Debug.Log("Bear entered IDLE");
     }
 
     private void Update()
     {
-        // The bear is not blind while resting (bug from 13.10).
-        if (vision != null && vision.CanSeePlayer())
-        {
-            Debug.Log("Bear saw player while idle!");
-
-            bearAI.SetLastKnownPlayerPosition(vision.player.position);
-            bearAI.StateMachine.ChangeState(BearState.Tracking);
-
-            return;
-        }
-
         timer -= Time.deltaTime;
 
         if (timer <= 0f)
-        {
-            bearAI.StateMachine.ChangeState(BearState.Patrol);
-        }
+            ChangeState(BearState.Patrol);
     }
 }

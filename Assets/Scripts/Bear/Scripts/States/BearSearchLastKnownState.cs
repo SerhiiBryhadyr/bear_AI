@@ -1,52 +1,47 @@
 using UnityEngine;
 
-public class BearSearchLastKnownState : MonoBehaviour
+// =====================================================================
+// BearSearchLastKnownState - mode Unknown, right after losing the
+// player. Walks to the last known point (from BearKnowledge), waits
+// searchTime seconds, then -> Patrol.
+// Sees or hears the player close again -> BearKnowledge switches to
+// Knows and BearBrain takes the bear back to Tracking.
+// =====================================================================
+public class BearSearchLastKnownState : BearStateBehaviour
 {
-    public float searchTime = 3f;
+    public override BearState Id => BearState.SearchLastKnown;
 
-    private BearAI bearAI;
-    private BearVision vision;
+    public float searchTime = 3f;
 
     private float timer;
     private bool arrived;
-
-    private void Awake()
-    {
-        bearAI = GetComponent<BearAI>();
-        vision = GetComponent<BearVision>();
-    }
 
     private void OnEnable()
     {
         arrived = false;
         timer = searchTime;
 
-        if (bearAI.HasLastKnownPlayerPosition)
+        if (!Knowledge.HasLastKnownPosition)
         {
-            bearAI.Movement.MoveTo(bearAI.LastKnownPlayerPosition);
-
-            Debug.Log("Bear searching last known position.");
+            Debug.Log("Bear has no last known position. Returning to patrol.");
+            ChangeState(BearState.Patrol);
+            return;
         }
+
+        Movement.MoveTo(Knowledge.LastKnownPosition);
+        Debug.Log("Bear searching last known position: " + Knowledge.LastKnownPosition);
     }
 
     private void Update()
     {
-        if (vision != null && vision.CanSeePlayer())
-        {
-            Debug.Log("Bear found player again!");
-
-            bearAI.StateMachine.ChangeState(BearState.Tracking);
-            return;
-        }
-
+        // 1. Walk to the point.
         if (!arrived)
         {
-            if (bearAI.Movement.HasReachedDestination())
+            if (Movement.HasReachedDestination())
             {
                 arrived = true;
                 timer = searchTime;
-
-                bearAI.Movement.Stop();
+                Movement.Stop();
 
                 Debug.Log("Bear reached last known position. Searching...");
             }
@@ -54,13 +49,13 @@ public class BearSearchLastKnownState : MonoBehaviour
             return;
         }
 
+        // 2. Look around, then give up.
         timer -= Time.deltaTime;
 
         if (timer <= 0f)
         {
             Debug.Log("Bear did not find player. Returning to patrol.");
-
-            bearAI.StateMachine.ChangeState(BearState.Patrol);
+            ChangeState(BearState.Patrol);
         }
     }
 }

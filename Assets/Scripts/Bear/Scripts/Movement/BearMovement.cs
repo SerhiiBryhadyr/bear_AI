@@ -63,6 +63,15 @@ public class BearMovement : MonoBehaviour
         agent.speed = baseSpeed * multiplier;
     }
 
+    // Exact speed in m/s (chase). SetSpeedMultiplier(1) returns to normal.
+    public void SetSpeed(float metersPerSecond)
+    {
+        if (agent == null)
+            return;
+
+        agent.speed = metersPerSecond;
+    }
+
     // ---------------------------------------------------------------
     // Turning in place. NavMeshAgent turns the bear only while walking,
     // so standing reactions (stare, after retreat) use these.

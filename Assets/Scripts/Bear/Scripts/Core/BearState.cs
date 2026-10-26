@@ -4,5 +4,6 @@ public enum BearState
     Patrol,
     Tracking,
     InvestigateSound,
-    SearchLastKnown
+    SearchLastKnown,
+    Chase               // mode Knows: the player runs away (added at the end - Inspector values stay)
 }

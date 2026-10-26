@@ -26,10 +26,12 @@ public enum ContactSource
 //
 // 1. Vision: every frame asks BearVision. Sees -> contact (Knows).
 // 2. Sound (from BearHearing):
-//    - mode Knows    -> any heard sound refreshes the contact
-//                       (the bear chases by ear while out of sight, D-20);
+//    - while the bear SEES the player, sounds add nothing;
 //    - closer than closeSoundRadius -> exact contact (Knows), even if
 //                       the player is hidden behind a rock (D-19);
+//    - mode Knows    -> the contact goes on, but the bear knows only an
+//                       AREA around the sound: a random point in a circle
+//                       that grows with distance (chase by ear, D-20);
 //    - farther       -> only a clue: event SoundClue, BearBrain decides
 //                       whether to investigate.
 // 3. Losing the player: no sight AND no sound for loseContactTime
@@ -45,6 +47,14 @@ public class BearKnowledge : MonoBehaviour
     [Header("Close sound (D-19)")]
     [Tooltip("A heard player sound closer than this (m) = the bear knows exactly where the player is.")]
     public float closeSoundRadius = 5f;
+
+    [Header("Chase by ear (D-20)")]
+    [Tooltip("Mode Knows, not seeing: a sound farther than closeSoundRadius gives only an area. Radius = distance x this.")]
+    public float soundAreaPerMeter = 0.2f;
+    public float soundAreaMin = 1.5f;
+    public float soundAreaMax = 8f;
+    [Tooltip("A new random point in the area at most this often (s). Steps come 2-3 per second.")]
+    public float soundAreaRepickTime = 1.5f;
 
     [Header("Losing the player (D-20)")]
     [Tooltip("Knows -> Unknown after this many seconds without seeing AND without hearing the player.")]
@@ -82,6 +92,8 @@ public class BearKnowledge : MonoBehaviour
     private BearVision vision;
     private PlayerAwareness playerAwareness;
     private float lastContactTime;
+    private Vector3 lastAreaCenter;
+    private float lastAreaPickTime = -999f;
 
     private void Awake()
     {
@@ -117,16 +129,72 @@ public class BearKnowledge : MonoBehaviour
     // ---------------------------------------------------------------
     public void ReceiveSound(SoundEvent soundEvent, float distance)
     {
-        if (Mode == KnowledgeMode.Knows || distance <= closeSoundRadius)
+        // Sees the player -> the exact position already comes from the eyes.
+        if (IsSeeingPlayer)
+            return;
+
+        // Very close -> exact position in any mode (D-19).
+        if (distance <= closeSoundRadius)
         {
             if (logSoundContacts)
-                Debug.Log("[Knowledge] sound contact: " + soundEvent.Type + ", " + distance.ToString("F1") + " m");
+                Debug.Log("[Knowledge] close sound: exact, " + distance.ToString("F1") + " m");
 
             RegisterContact(soundEvent.Position, ContactSource.Sound);
             return;
         }
 
+        // Chasing by ear -> only an area around the sound (D-20).
+        if (Mode == KnowledgeMode.Knows)
+        {
+            RegisterSoundArea(soundEvent.Position, distance);
+            return;
+        }
+
         SoundClue?.Invoke(soundEvent);
+    }
+
+    // ---------------------------------------------------------------
+    // Chase by ear (D-20): the contact goes on, but the bear knows only
+    // the area. The radius grows with distance. A new random point is
+    // picked not more often than soundAreaRepickTime (otherwise every
+    // step would make the bear zigzag) or when the sound left the area.
+    // ---------------------------------------------------------------
+    private void RegisterSoundArea(Vector3 soundPosition, float distance)
+    {
+        float radius = Mathf.Clamp(distance * soundAreaPerMeter, soundAreaMin, soundAreaMax);
+
+        bool timeToRepick = Time.time - lastAreaPickTime >= soundAreaRepickTime;
+        bool soundLeftArea = Vector3.Distance(soundPosition, lastAreaCenter) > radius;
+        bool firstSoundAfterSight = LastContactSource != ContactSource.Sound;
+
+        if (timeToRepick || soundLeftArea || firstSoundAfterSight)
+        {
+            Vector2 offset = UnityEngine.Random.insideUnitCircle * radius;
+            LastKnownPosition = soundPosition + new Vector3(offset.x, 0f, offset.y);
+            lastAreaCenter = soundPosition;
+            lastAreaPickTime = Time.time;
+
+            if (logSoundContacts)
+                Debug.Log("[Knowledge] sound area: " + distance.ToString("F1") + " m, radius " + radius.ToString("F1") + " m");
+        }
+
+        HasLastKnownPosition = true;
+        LastContactSource = ContactSource.Sound;
+        lastContactTime = Time.time;
+    }
+
+    // ---------------------------------------------------------------
+    // The bear SEES the player moving away from it faster than minSpeed
+    // (canon 03: "the player runs from the bear -> chase").
+    // ---------------------------------------------------------------
+    public bool IsPlayerFleeing(Vector3 bearPosition, float minSpeed)
+    {
+        if (!IsSeeingPlayer || LastKnownVelocity.magnitude < minSpeed)
+            return false;
+
+        Vector3 away = LastKnownPosition - bearPosition;
+        away.y = 0f;
+        return Vector3.Dot(LastKnownVelocity, away) > 0f;
     }
 
     // ---------------------------------------------------------------

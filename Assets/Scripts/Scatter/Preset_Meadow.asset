@@ -1,0 +1,105 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b77ba38a8e1c4467ac031ba56982921, type: 3}
+  m_Name: Preset_Meadow
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 9079412300187566492, guid: 2e825dc227ee74cc6ac651d22f8437a4, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 0.4
+    scaleRange: {x: 0.8, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 693928619746439408, guid: 5c09715bfca0645578c713e915f300ec, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 0.4
+    scaleRange: {x: 0.8, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 7295626210560011496, guid: 5e2439a6ac67a449587a4d7b28b0459f, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 0.4
+    scaleRange: {x: 0.8, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 3490970024334237059, guid: c247e422945aa45579cebcf5281727ae, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 0.4
+    scaleRange: {x: 0.8, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 2257862821473595094, guid: d7277ab87146d43d09cb742997d2bf0b, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 0.4
+    scaleRange: {x: 0.8, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 7653681215599141625, guid: 716c60441fbe449cfb7897afc5fe36fb, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 0.4
+    scaleRange: {x: 0.8, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 4843524868254211946, guid: a5cb5ca867d874a09a1d488cf9847514, type: 3}
+    weight: 0.5
+    fitMode: 0
+    footprintRadius: 0.4
+    scaleRange: {x: 0.4, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 7105557981267009923, guid: 42bf33029b43e4a7fbc7287a3258ca09, type: 3}
+    weight: 0.5
+    fitMode: 0
+    footprintRadius: 0.4
+    scaleRange: {x: 0.3, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 4356480299396696560, guid: 37f4b09f67bca441cbe09ef983ee0b53, type: 3}
+    weight: 0.5
+    fitMode: 0
+    footprintRadius: 0.4
+    scaleRange: {x: 0.2, y: 1.2}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  density: 25
+  treeClearance: 1.2
+  avoidColliders: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3

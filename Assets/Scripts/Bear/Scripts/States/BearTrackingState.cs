@@ -5,6 +5,8 @@ using UnityEngine;
 // The bear knows where the player is and decides HOW CLOSE to come,
 // based on the player's dominance level (PlayerDominance, D-01).
 // It never retreats.
+// The player runs away (the bear SEES him faster than chaseStartSpeed,
+// moving away) -> Chase (canon 03).
 //   HIGH   -> stands still, faces the player and watches
 //   MEDIUM -> walks slowly toward the player, stops at mediumStopDistance
 //   LOW    -> walks toward the player, stops at lowStopDistance (no pushing)
@@ -25,6 +27,10 @@ public class BearTrackingState : BearStateBehaviour
     public float decisionInterval = 0.3f;
     [Tooltip("A reaction is kept at least this long before switching.")]
     public float minReactionTime = 2f;
+
+    [Header("Chase")]
+    [Tooltip("The bear SEES the player moving away faster than this (m/s) -> Chase. Walk 4, run 8.")]
+    public float chaseStartSpeed = 6f;
 
     [Header("LOW - approach")]
     public float lowStopDistance = 2.5f;
@@ -79,6 +85,13 @@ public class BearTrackingState : BearStateBehaviour
     {
         if (!Knowledge.HasLastKnownPosition)
             return;
+
+        // The player runs away -> chase (canon 03).
+        if (Knowledge.IsPlayerFleeing(transform.position, chaseStartSpeed))
+        {
+            ChangeState(BearState.Chase);
+            return;
+        }
 
         reactionTime += Time.deltaTime;
         UpdateCurrentReaction();

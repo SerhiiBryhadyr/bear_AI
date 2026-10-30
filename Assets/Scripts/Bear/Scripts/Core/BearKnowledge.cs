@@ -36,6 +36,9 @@ public enum ContactSource
 //                       whether to investigate.
 // 3. Losing the player: no sight AND no sound for loseContactTime
 //    seconds -> Unknown. Last point and movement direction are kept.
+// 4. Opinion "the player has noticed me" (D-16): changes only while
+//    the bear SEES the player - only then it can see where he looks.
+//    Reset when the player is lost.
 //
 // Mode changes are announced by the ModeChanged event (BearBrain
 // listens). Runs after BearAI / BearStateMachine and before the states,
@@ -78,6 +81,11 @@ public class BearKnowledge : MonoBehaviour
 
     public ContactSource LastContactSource { get; private set; } = ContactSource.None;
 
+    // D-16: the bear's OPINION "the player has noticed me" - not the
+    // truth (that is PlayerSightOfBear on the player). With its back to
+    // the player the bear cannot know about his look.
+    public bool BelievesNoticed { get; private set; }
+
     public float TimeSinceContact =>
         HasLastKnownPosition ? Time.time - lastContactTime : float.PositiveInfinity;
 
@@ -91,6 +99,7 @@ public class BearKnowledge : MonoBehaviour
 
     private BearVision vision;
     private PlayerAwareness playerAwareness;
+    private PlayerSightOfBear playerSight;
     private float lastContactTime;
     private Vector3 lastAreaCenter;
     private float lastAreaPickTime = -999f;
@@ -114,6 +123,7 @@ public class BearKnowledge : MonoBehaviour
         {
             LastKnownVelocity = ReadPlayerVelocity();
             RegisterContact(vision.player.position, ContactSource.Vision);
+            UpdateNoticedBelief();
             return;
         }
 
@@ -218,7 +228,36 @@ public class BearKnowledge : MonoBehaviour
 
         Debug.Log("[Knowledge] " + oldMode + " -> " + newMode + " (" + reason + ")");
 
+        // Lost the player -> he no longer knows where the bear is either.
+        if (newMode == KnowledgeMode.Unknown && BelievesNoticed)
+        {
+            BelievesNoticed = false;
+            Debug.Log("[Knowledge] belief reset: the bear lost the player");
+        }
+
         ModeChanged?.Invoke(oldMode, newMode);
+    }
+
+    // ---------------------------------------------------------------
+    // D-16 opinion. Called only while the bear SEES the player.
+    // The player is looking at the bear right now (the fact from
+    // PlayerSightOfBear) -> "he has noticed me". Otherwise the opinion
+    // stays as it was.
+    // ---------------------------------------------------------------
+    private void UpdateNoticedBelief()
+    {
+        if (BelievesNoticed)
+            return;
+
+        if (playerSight == null && vision.player != null)
+            playerSight = vision.player.GetComponent<PlayerSightOfBear>();
+
+        if (playerSight == null || !playerSight.IsWatchingBear)
+            return;
+
+        BelievesNoticed = true;
+        Debug.Log("[Knowledge] bear believes it is NOTICED: it sees the player looking at it, " +
+                  playerSight.DistanceToBear.ToString("F1") + " m");
     }
 
     // The bear sees the player, so it may see how he moves.

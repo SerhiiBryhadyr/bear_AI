@@ -16,8 +16,7 @@ public class PlayerBehaviorTracker : MonoBehaviour
     [SerializeField] private Transform bear;
 
     [Header("Looking")]
-    [Range(0f, 180f)]
-    public float lookAngle = 45f;            // to each side of screen center
+    [Tooltip("The bear is farther than this angle from where the camera looks = back turned to it.")]
     [Range(0f, 180f)]
     public float backTurnedAngle = 120f;
 
@@ -57,6 +56,7 @@ public class PlayerBehaviorTracker : MonoBehaviour
 
     private PlayerAwareness playerAwareness;
     private PlayerController playerController;
+    private PlayerSightOfBear sight;
     private Vector3 lastCameraForward;
 
     // ---------------------------------------------------------------
@@ -69,6 +69,15 @@ public class PlayerBehaviorTracker : MonoBehaviour
 
         if (playerCamera == null)
             playerCamera = Camera.main;
+
+        // "Looking at the bear" now comes from the D-16 fact.
+        sight = GetComponent<PlayerSightOfBear>();
+        if (sight == null)
+        {
+            Debug.LogWarning("PlayerBehaviorTracker: PlayerSightOfBear is missing on Player - added automatically. " +
+                             "Add it in the Inspector to keep its settings.");
+            sight = gameObject.AddComponent<PlayerSightOfBear>();
+        }
     }
 
     private void Start()
@@ -163,20 +172,24 @@ public class PlayerBehaviorTracker : MonoBehaviour
     }
 
     // ---------------------------------------------------------------
-    // Looking: is the bear within lookAngle of screen center
-    // (horizontal). 45 deg to each side ~ bear is anywhere on screen.
+    // Looking (D-16): the player really SEES the bear - it is in the
+    // frame, not hidden by a rock, and he looked long enough to notice
+    // it (PlayerSightOfBear). The camera merely pointing that way is
+    // not enough any more. Held ~1 s, so a quick glance aside does not
+    // flip dominance.
+    // Back turned: still by angle - it is about the body, not sight.
     // ---------------------------------------------------------------
     private void UpdateLooking(Vector3 directionToBear)
     {
+        IsLookingAtBear = sight != null && sight.IsWatchingBear;
+
         Vector3 cameraForward = playerCamera.transform.forward;
         cameraForward.y = 0f;
 
         if (cameraForward.sqrMagnitude < 0.001f)
-            return;   // looking straight up/down - keep last values
+            return;   // looking straight up/down - keep last value
 
         float viewAngle = Vector3.Angle(cameraForward.normalized, directionToBear);
-
-        IsLookingAtBear = viewAngle <= lookAngle;
         IsBackTurned = viewAngle >= backTurnedAngle;
     }
 

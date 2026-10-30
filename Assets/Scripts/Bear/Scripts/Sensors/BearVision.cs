@@ -10,18 +10,22 @@ using UnityEngine;
 //      range drops to edgeRange; beyond maxHalfAngle - not seen at all.
 //   2. How much of the player is visible: rays to 5 body points
 //      (head, two shoulders, hips, knees). Half the body behind a
-//      rock = half the range.
+//      rock = half the range; a bush hides partly (LineOfSight - the
+//      same rules as the player's eyes, D-31).
 //   3. How the player moves: running is the most noticeable, standing
 //      still less, crouching much less.
 //
 //   Seen  =  distance <= maxViewDistance * angle * visible share * movement
+//
+// Closer than closeRange the angle does not matter: the bear notices a
+// player right next to it from any side (obstacles still count).
 //
 // Example: player runs in the open straight ahead -> 100 m;
 // stands still -> 60 m; crouches with half the body behind a rock -> ~17 m.
 //
 // Eyes: an empty "Eyes" object under the head bone, blue axis (Z)
 // looking forward. Without it - body position + eyeHeight, body forward.
-// Not yet: flashlight, "hidden in grass" (grass has no colliders).
+// Not yet: flashlight, grass (only bushes with a Foliage collider hide).
 // =====================================================================
 public class BearVision : MonoBehaviour
 {
@@ -42,6 +46,8 @@ public class BearVision : MonoBehaviour
     public float maxHalfAngle = 65f;
     [Tooltip("Range at the very edge of the view (m).")]
     public float edgeRange = 3f;
+    [Tooltip("Closer than this (m) the bear notices the player at any angle (hears, smells, side vision). Obstacles still count.")]
+    public float closeRange = 2.5f;
 
     [Header("How noticeable the player is (0-1)")]
     public float runFactor = 1f;
@@ -53,6 +59,11 @@ public class BearVision : MonoBehaviour
     [Header("Obstacles")]
     [Tooltip("What blocks the view. Everything by default; remove layers you can see through (chain-link fences).")]
     public LayerMask blockingLayers = ~0;
+    [Tooltip("Bushes: partial cover. Empty = the layer named 'Foliage'.")]
+    public LayerMask foliageLayers = 0;
+    [Tooltip("Every bush on the line of sight hides this share of what is left (0.5: one bush - 50% visible, two - 25%).")]
+    [Range(0f, 1f)]
+    public float foliageBlock = 0.5f;
 
     [Header("Debug")]
     [Tooltip("Log when the bear starts / stops seeing the player.")]
@@ -69,8 +80,7 @@ public class BearVision : MonoBehaviour
     private PlayerController playerController;
 
     private readonly Vector3[] points = new Vector3[PointCount];
-    private readonly bool[] pointVisible = new bool[PointCount];
-    private readonly RaycastHit[] hits = new RaycastHit[16];
+    private readonly float[] pointVisibility = new float[PointCount];
     private Vector3 lastEyePosition;
     private bool wasSeeing;
 
@@ -79,6 +89,9 @@ public class BearVision : MonoBehaviour
     // ---------------------------------------------------------------
     private void Start()
     {
+        if (foliageLayers.value == 0)
+            foliageLayers = LayerMask.GetMask("Foliage");
+
         GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
 
         if (playerObject == null)
@@ -115,7 +128,8 @@ public class BearVision : MonoBehaviour
         LastDistance = Vector3.Distance(eye, bodyCenter);
 
         // 1. Angle -> how much of the full range is left at this angle.
-        float angleFactor = AngleFactor(bodyCenter - eye);
+        //    Right next to the bear the angle does not matter.
+        float angleFactor = LastDistance <= closeRange ? 1f : AngleFactor(bodyCenter - eye);
         if (angleFactor <= 0f)
             return Report(false, "outside the view angle");
 
@@ -216,52 +230,22 @@ public class BearVision : MonoBehaviour
     }
 
     // ---------------------------------------------------------------
-    // Rays to every body point. A point is visible when the first thing
-    // the ray hits is the player himself (or nothing). The bear's own
-    // colliders and trigger zones are ignored.
+    // Rays to every body point (LineOfSight): 1 = visible, 0 = hidden,
+    // between = behind bushes. The bear's own colliders and other
+    // trigger zones are ignored.
     // ---------------------------------------------------------------
     private float VisibleShare(Vector3 eye)
     {
-        int visible = 0;
+        float sum = 0f;
 
         for (int i = 0; i < PointCount; i++)
         {
-            pointVisible[i] = IsPointVisible(eye, points[i]);
-            if (pointVisible[i])
-                visible++;
+            pointVisibility[i] = LineOfSight.PointVisibility(eye, points[i], player, transform,
+                                                             blockingLayers, foliageLayers, foliageBlock);
+            sum += pointVisibility[i];
         }
 
-        return (float)visible / PointCount;
-    }
-
-    private bool IsPointVisible(Vector3 eye, Vector3 point)
-    {
-        Vector3 direction = point - eye;
-        float distance = direction.magnitude;
-        if (distance < 0.01f)
-            return true;
-
-        int count = Physics.RaycastNonAlloc(eye, direction / distance, hits, distance,
-                                            blockingLayers, QueryTriggerInteraction.Ignore);
-
-        // Hits come unsorted: find the nearest one that is not the bear itself.
-        float nearest = float.MaxValue;
-        Transform nearestHit = null;
-
-        for (int i = 0; i < count; i++)
-        {
-            Transform hitTransform = hits[i].transform;
-            if (hitTransform.IsChildOf(transform))
-                continue;
-
-            if (hits[i].distance < nearest)
-            {
-                nearest = hits[i].distance;
-                nearestHit = hitTransform;
-            }
-        }
-
-        return nearestHit == null || nearestHit.IsChildOf(player);
+        return sum / PointCount;
     }
 
     // ---------------------------------------------------------------
@@ -292,7 +276,7 @@ public class BearVision : MonoBehaviour
         if (seeing != wasSeeing && logChanges)
         {
             string mode = playerController != null ? playerController.CurrentMode.ToString() : "?";
-            string share = Mathf.RoundToInt(LastVisibleShare * PointCount) + "/" + PointCount;
+            string share = Mathf.RoundToInt(LastVisibleShare * 100f) + "%";
 
             Debug.Log(seeing
                 ? $"[Vision] SEES player: {LastDistance:F1} m, visible {share}, {mode}, {reason}"
@@ -305,7 +289,7 @@ public class BearVision : MonoBehaviour
 
     // ---------------------------------------------------------------
     // Scene view (bear selected): rays of the last check -
-    // green = visible point, red = hidden.
+    // green = visible point, yellow = behind bushes, red = hidden.
     // ---------------------------------------------------------------
     private void OnDrawGizmosSelected()
     {
@@ -314,7 +298,8 @@ public class BearVision : MonoBehaviour
 
         for (int i = 0; i < PointCount; i++)
         {
-            Gizmos.color = pointVisible[i] ? Color.green : Color.red;
+            float v = pointVisibility[i];
+            Gizmos.color = v >= 0.99f ? Color.green : v > 0f ? Color.yellow : Color.red;
             Gizmos.DrawLine(lastEyePosition, points[i]);
         }
     }

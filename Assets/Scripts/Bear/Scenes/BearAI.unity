@@ -280,7 +280,7 @@ MonoBehaviour:
   soundAreaMax: 8
   soundAreaRepickTime: 1.5
   loseContactTime: 3
-  logSoundContacts: 0
+  logSoundContacts: 1
 --- !u!114 &694889784
 MonoBehaviour:
   m_ObjectHideFlags: 0

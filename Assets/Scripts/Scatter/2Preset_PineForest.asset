@@ -16,7 +16,7 @@ MonoBehaviour:
   - prefab: {fileID: 8267427934229748759, guid: cce04f533c148314abf74aff71206ec7, type: 3}
     weight: 0.15
     fitMode: 0
-    footprintRadius: 1
+    footprintRadius: 0.5
     scaleRange: {x: 0.8, y: 1.5}
     alignToSlope: 0.5
     sinkDepth: 0.05
@@ -25,31 +25,40 @@ MonoBehaviour:
   - prefab: {fileID: 8267427934229748759, guid: cce04f533c148314abf74aff71206ec7, type: 3}
     weight: 0.15
     fitMode: 0
-    footprintRadius: 1
+    footprintRadius: 0.5
     scaleRange: {x: 1.5, y: 3}
     alignToSlope: 0.5
     sinkDepth: 0.23
     maxBury: 1.6
     maxSlope: 35
-  - prefab: {fileID: 5936893128028724840, guid: f611d77947a7ec74692548d60ef94887, type: 3}
-    weight: 0.01
+  - prefab: {fileID: 5936893128028724840, guid: e863d65c924be45a1926ca05fbb2995a, type: 3}
+    weight: 0.1
     fitMode: 0
-    footprintRadius: 1
+    footprintRadius: 0.5
     scaleRange: {x: 0.05, y: 0.15}
     alignToSlope: 0.5
     sinkDepth: 0.1
     maxBury: 0.5
     maxSlope: 35
   - prefab: {fileID: 3375602384960043644, guid: a93f80d252523a14d9206681c7713ce8, type: 3}
-    weight: 0.005
+    weight: 0.01
     fitMode: 0
-    footprintRadius: 1
+    footprintRadius: 0.5
     scaleRange: {x: 0.15, y: 0.5}
     alignToSlope: 0.5
     sinkDepth: 0.1
     maxBury: 0.5
     maxSlope: 35
-  density: 20
+  - prefab: {fileID: 1647502441230210415, guid: 4786e2698ac97a949a9209febfcbd49b, type: 3}
+    weight: 0.5
+    fitMode: 0
+    footprintRadius: 0.1
+    scaleRange: {x: 1, y: 2}
+    alignToSlope: 0.5
+    sinkDepth: 0.01
+    maxBury: 0.1
+    maxSlope: 35
+  density: 45
   treeClearance: 1.2
   avoidColliders: 1
   obstacleLayers:

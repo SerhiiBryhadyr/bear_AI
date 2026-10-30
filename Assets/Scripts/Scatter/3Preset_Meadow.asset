@@ -1,0 +1,78 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b77ba38a8e1c4467ac031ba56982921, type: 3}
+  m_Name: 3Preset_Meadow
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 5443344685879028270, guid: 4dfd50a1f648e984f8188be70774f281, type: 3}
+    weight: 1
+    fitMode: 0
+    footprintRadius: 0.5
+    scaleRange: {x: 2, y: 3}
+    alignToSlope: 0.5
+    sinkDepth: 0.08
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 6846659341408791651, guid: 4c72217d56dcb6749a897a75cad1f34e, type: 3}
+    weight: 1
+    fitMode: 0
+    footprintRadius: 0.5
+    scaleRange: {x: 2.5, y: 3.5}
+    alignToSlope: 0.5
+    sinkDepth: 0.08
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 2803505663424749585, guid: b273de0d6e5818a4cb3195ce4f376ccb, type: 3}
+    weight: 0.5
+    fitMode: 0
+    footprintRadius: 0.2
+    scaleRange: {x: 1.5, y: 3.5}
+    alignToSlope: 0.5
+    sinkDepth: 0.5
+    maxBury: 1
+    maxSlope: 35
+  - prefab: {fileID: 4843524868254211946, guid: bb22ac0278ae74bbe8cbc92be58e4071, type: 3}
+    weight: 0.05
+    fitMode: 0
+    footprintRadius: 0.1
+    scaleRange: {x: 1, y: 1.5}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.3
+    maxSlope: 35
+  - prefab: {fileID: 5514129879276577408, guid: c8c9f1c06d46f41728f3da43bd39b395, type: 3}
+    weight: 0.05
+    fitMode: 0
+    footprintRadius: 0.1
+    scaleRange: {x: 1, y: 1.5}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.3
+    maxSlope: 35
+  - prefab: {fileID: 7105557981267009923, guid: 07f72347ba78940c9ab0d6dfb2c9101f, type: 3}
+    weight: 0.05
+    fitMode: 0
+    footprintRadius: 0.1
+    scaleRange: {x: 1, y: 1.5}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.3
+    maxSlope: 35
+  density: 3
+  treeClearance: 1.2
+  avoidColliders: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3

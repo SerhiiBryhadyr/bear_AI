@@ -31,9 +31,8 @@
 /Packages/*
 !/Packages/manifest.json
 !/Packages/packages-lock.json
+# Unity project settings: layers, physics, quality, NavMesh areas (small text files)
 !/ProjectSettings/
-/ProjectSettings/*
-!/ProjectSettings/TagManager.asset
 
 .DS_Store
 /AssetSetupBackups/

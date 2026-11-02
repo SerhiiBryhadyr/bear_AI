@@ -1,0 +1,69 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b77ba38a8e1c4467ac031ba56982921, type: 3}
+  m_Name: 3Preset_PineForestGroup
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 8170892402041459133, guid: e6f4fa3193ec142a8904dea62b8a2996, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 1
+    scaleRange: {x: 0.8, y: 1.15}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 8549234452806126686, guid: 7fe35a280da0d4df7864a6d27d627a90, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 1
+    scaleRange: {x: 0.67, y: 1.45}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 3689363604164636373, guid: 143e55b1af4844eeba43bfc0d0da0c6a, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 1
+    scaleRange: {x: 0.67, y: 1.45}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 3856410305175685680, guid: d0523290d53da41faaeb8ff18f0506fa, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 1
+    scaleRange: {x: 0.67, y: 1.45}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 7689681983903842706, guid: 6313de200590d42259927ddd158bcbd5, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 1
+    scaleRange: {x: 0.67, y: 1.45}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  density: 3
+  treeClearance: 1.2
+  avoidColliders: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3

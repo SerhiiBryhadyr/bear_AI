@@ -1,0 +1,78 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b77ba38a8e1c4467ac031ba56982921, type: 3}
+  m_Name: 1Preset_Rocks_white
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 4704081096440925973, guid: 7279d1a8f56824cbf9dd4a5dc41e2c07, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 2
+    scaleRange: {x: 0.99, y: 1.75}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 38
+  - prefab: {fileID: 970736189298041114, guid: 73c026847d5fc4485864bbacbeba15aa, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 2
+    scaleRange: {x: 0.99, y: 1.75}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 4042231088827197608, guid: 3528e9064f3c24113a49706d3838b733, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 22
+    scaleRange: {x: 0.99, y: 1.75}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 3021064805541990987, guid: 64ae50819de4e4c07b919f8f56476ae4, type: 3}
+    weight: 1
+    fitMode: 1
+    footprintRadius: 2
+    scaleRange: {x: 0.99, y: 1.75}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 35
+  - prefab: {fileID: 4356480299396696560, guid: 37f4b09f67bca441cbe09ef983ee0b53, type: 3}
+    weight: 1
+    fitMode: 0
+    footprintRadius: 1
+    scaleRange: {x: 2.81, y: 4.29}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 90
+  - prefab: {fileID: 1604413879457636381, guid: 39b7a7d0e880b4e499bb2b8ef2a649e5, type: 3}
+    weight: 1
+    fitMode: 0
+    footprintRadius: 1
+    scaleRange: {x: 1.86, y: 3.31}
+    alignToSlope: 0.5
+    sinkDepth: 0.05
+    maxBury: 0.4
+    maxSlope: 90
+  density: 1
+  treeClearance: 1.2
+  avoidColliders: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3

@@ -25,6 +25,12 @@ using UnityEngine;
 //
 // Eyes: an empty "Eyes" object under the head bone, blue axis (Z)
 // looking forward. Without it - body position + eyeHeight, body forward.
+//
+// Head turn (logic of D-32): a state may ask the eyes to follow a point
+// (SetLookTarget) - the bear walks its own way but turns its head to
+// the player, at most maxHeadTurn from the body. Used by stalking. The
+// visible head turn (Animation Rigging) comes with D-32; until then the
+// head turn is only in the logic.
 // Not yet: flashlight, grass (only bushes with a Foliage collider hide).
 // =====================================================================
 public class BearVision : MonoBehaviour
@@ -48,6 +54,10 @@ public class BearVision : MonoBehaviour
     public float edgeRange = 3f;
     [Tooltip("Closer than this (m) the bear notices the player at any angle (hears, smells, side vision). Obstacles still count.")]
     public float closeRange = 2.5f;
+
+    [Header("Head turn (D-32, logic only)")]
+    [Tooltip("When a state asks the eyes to follow a point (stalking), the head turns to it at most this far from the body (deg).")]
+    public float maxHeadTurn = 80f;
 
     [Header("How noticeable the player is (0-1)")]
     public float runFactor = 1f;
@@ -83,6 +93,9 @@ public class BearVision : MonoBehaviour
     private readonly float[] pointVisibility = new float[PointCount];
     private Vector3 lastEyePosition;
     private bool wasSeeing;
+
+    private bool hasLookTarget;
+    private Vector3 lookTarget;
 
     // ---------------------------------------------------------------
     // Setup: find the player and his body (size changes when crouching).
@@ -159,7 +172,42 @@ public class BearVision : MonoBehaviour
 
     private Vector3 LookDirection()
     {
+        if (hasLookTarget)
+            return HeadDirection();
+
         return eyes != null ? eyes.forward : transform.forward;
+    }
+
+    // ---------------------------------------------------------------
+    // Head turn (D-32 logic). A state calls SetLookTarget every frame
+    // while it wants the eyes on a point, ClearLookTarget when it ends.
+    // ---------------------------------------------------------------
+    public void SetLookTarget(Vector3 point)
+    {
+        hasLookTarget = true;
+        lookTarget = point;
+    }
+
+    public void ClearLookTarget()
+    {
+        hasLookTarget = false;
+    }
+
+    // Toward the look target, but not further than maxHeadTurn from the
+    // body: the bear cannot look straight behind without turning.
+    private Vector3 HeadDirection()
+    {
+        Vector3 body = transform.forward;
+        body.y = 0f;
+        Vector3 toTarget = lookTarget - EyePosition();
+        toTarget.y = 0f;
+
+        if (body.sqrMagnitude < 0.0001f || toTarget.sqrMagnitude < 0.0001f)
+            return transform.forward;
+
+        float angle = Vector3.SignedAngle(body, toTarget, Vector3.up);
+        float turn = Mathf.Clamp(angle, -maxHeadTurn, maxHeadTurn);
+        return Quaternion.AngleAxis(turn, Vector3.up) * body.normalized;
     }
 
     // ---------------------------------------------------------------
@@ -290,6 +338,7 @@ public class BearVision : MonoBehaviour
     // ---------------------------------------------------------------
     // Scene view (bear selected): rays of the last check -
     // green = visible point, yellow = behind bushes, red = hidden.
+    // Cyan line = where the head looks while it follows a point.
     // ---------------------------------------------------------------
     private void OnDrawGizmosSelected()
     {
@@ -301,6 +350,12 @@ public class BearVision : MonoBehaviour
             float v = pointVisibility[i];
             Gizmos.color = v >= 0.99f ? Color.green : v > 0f ? Color.yellow : Color.red;
             Gizmos.DrawLine(lastEyePosition, points[i]);
+        }
+
+        if (hasLookTarget)
+        {
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawLine(lastEyePosition, lastEyePosition + HeadDirection() * 5f);
         }
     }
 }

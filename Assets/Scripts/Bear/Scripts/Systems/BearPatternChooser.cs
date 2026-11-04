@@ -20,7 +20,10 @@ public enum BearPattern
 //   RearPursuit   - moves steadily forward, rarely checks behind, calm
 //                   camera, no panic. Being spotted halves it.
 //   SideParallel  - one side is checked much less than the other
-//                   ("blind side"), or no side at all.
+//                   ("blind side", canon 2.1). Only if the player really
+//                   checked the other side (MinSideCheck seconds): one
+//                   glance is not enough, and no checks at all = no
+//                   blind side either (both sides are the same).
 //   Ambush        - keeps one route for a long time, ignores the
 //                   surroundings, little running.
 //   PathCrossing  - keeps one route, medium tension; an alert player
@@ -33,6 +36,10 @@ public enum BearPattern
 // =====================================================================
 public static class BearPatternChooser
 {
+    // A blind side exists only if the other side was checked at least
+    // this long in the window (s). Tests 2.11: one glance gave 100%.
+    private const float MinSideCheck = 2f;
+
     public struct Result
     {
         public BearPattern Pattern;
@@ -92,9 +99,10 @@ public static class BearPatternChooser
             rear *= 0.5f;
 
         // 2. Parallel on the side: is there a blind side?
-        float maxSide = Mathf.Max(r.LeftShare, r.RightShare);
-        float minSide = Mathf.Min(r.LeftShare, r.RightShare);
-        float blindness = r.SideShare < 0.05f ? 0.8f : 1f - minSide / Mathf.Max(maxSide, 0.0001f);
+        //    checked = seconds on the side he looks at more, unchecked = the other.
+        float checkedSide = Mathf.Max(r.Left, r.Right);
+        float uncheckedSide = Mathf.Min(r.Left, r.Right);
+        float blindness = checkedSide >= MinSideCheck ? 1f - uncheckedSide / checkedSide : 0f;
         float sideParallel = 0.7f * blindness + 0.3f * (1f - Mathf.Clamp01(r.ChaoticShare / 0.3f));
 
         // 3. Ambush ahead.

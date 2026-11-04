@@ -5,6 +5,8 @@ using UnityEngine;
 // The bear knows where the player is and decides HOW CLOSE to come,
 // based on the player's dominance level (PlayerDominance, D-01).
 // It never retreats.
+// The bear sees the player farther than encounterEndDistance (he backed
+// off or walked on) -> lets him go and stalks hidden again (D-38).
 // The player runs away (the bear SEES him faster than chaseStartSpeed,
 // moving away) -> Chase (canon 03).
 //   HIGH   -> stands still, faces the player and watches
@@ -32,6 +34,10 @@ public class BearTrackingState : BearStateBehaviour
     [Tooltip("The bear SEES the player moving away faster than this (m/s) -> Chase. Walk 4, run 8.")]
     public float chaseStartSpeed = 6f;
 
+    [Header("End of encounter (D-38)")]
+    [Tooltip("The bear sees the player farther than this (m) -> lets him go and stalks hidden again (Stalk).")]
+    public float encounterEndDistance = 25f;
+
     [Header("LOW - approach")]
     public float lowStopDistance = 2.5f;
     public float lowSpeedMultiplier = 1f;
@@ -50,6 +56,7 @@ public class BearTrackingState : BearStateBehaviour
     private Reaction currentReaction;
     private float reactionTime;             // how long the current reaction lasts
     private float decisionTimer;
+    private bool hasStalkState;
 
     // ---------------------------------------------------------------
     // Setup / cleanup.
@@ -59,6 +66,7 @@ public class BearTrackingState : BearStateBehaviour
         currentReaction = Reaction.None;
         reactionTime = 0f;
         decisionTimer = 0f;
+        hasStalkState = GetComponent<BearStalkState>() != null;
 
         FindPlayerDominance();
 
@@ -90,6 +98,16 @@ public class BearTrackingState : BearStateBehaviour
         if (Knowledge.IsPlayerFleeing(transform.position, chaseStartSpeed))
         {
             ChangeState(BearState.Chase);
+            return;
+        }
+
+        // The player went away -> the bear lets him go and follows hidden
+        // again (D-38). Running away is the chase above, not this.
+        if (hasStalkState && Knowledge.IsSeeingPlayer && DistanceToPlayer() > encounterEndDistance)
+        {
+            Debug.Log("[Tracking] the player is " + DistanceToPlayer().ToString("F0") +
+                      " m away - lets him go, stalks hidden again (D-38)");
+            ChangeState(BearState.Stalk);
             return;
         }
 

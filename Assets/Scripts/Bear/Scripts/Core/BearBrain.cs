@@ -4,15 +4,17 @@ using UnityEngine;
 // BearBrain - decisions on the border of the modes.
 // Listens to BearKnowledge and says which state to enable:
 //
-//   Unknown -> Knows      : knowsEntryState  (now Tracking; later the
-//                           analysis phase D-15 - change it in the
-//                           Inspector, not in code)
+//   Unknown -> Knows      : knowsEntryState  (Stalk: the bear first
+//                           follows hidden and reads the player, D-15 /
+//                           D-35; Stalk itself hands over to the
+//                           Encounter (Tracking) when spotted close)
 //   Knows   -> Unknown    : lostEntryState   (SearchLastKnown)
 //   distant sound (Unknown): InvestigateSound
 //                           (later: reaction variants of D-12)
 //
-// Transitions INSIDE a mode (Idle <-> Patrol, X -> Y -> Z -> Patrol)
-// stay in the states themselves - they are the states' own business.
+// Transitions INSIDE a mode (Idle <-> Patrol, X -> Y -> Z -> Patrol,
+// Stalk <-> Tracking <-> Chase) stay in the states themselves - they
+// are the states' own business.
 //
 // New sources of decisions (BearDirector D-22, mood D-13) will be
 // added here, the states and sensors stay as they are.
@@ -21,8 +23,8 @@ using UnityEngine;
 public class BearBrain : MonoBehaviour
 {
     [Header("Mode transitions")]
-    [Tooltip("State the bear switches to when it learns exactly where the player is.")]
-    public BearState knowsEntryState = BearState.Tracking;
+    [Tooltip("State the bear switches to when it learns exactly where the player is. Stalk = follow hidden first (D-35).")]
+    public BearState knowsEntryState = BearState.Stalk;
 
     [Tooltip("State the bear switches to when it loses the player.")]
     public BearState lostEntryState = BearState.SearchLastKnown;
@@ -54,6 +56,18 @@ public class BearBrain : MonoBehaviour
         knowledge = GetComponent<BearKnowledge>();
         investigationSystem = GetComponent<BearInvestigationSystem>();
         investigateSoundState = GetComponent<BearInvestigateSoundState>();
+    }
+
+    // Scene check: the value saved in the scene wins over the code.
+    private void Start()
+    {
+        bool hasStalk = GetComponent<BearStalkState>() != null;
+
+        if (knowsEntryState == BearState.Stalk && !hasStalk)
+            Debug.LogError("BearBrain: Knows Entry State = Stalk, but BearStalkState is missing on the bear. Add the component.");
+        else if (knowsEntryState != BearState.Stalk && hasStalk)
+            Debug.LogWarning("BearBrain: Knows Entry State = " + knowsEntryState +
+                             " - stalking (D-35) is skipped on first contact. Set it to Stalk in the Inspector.");
     }
 
     private void OnEnable()

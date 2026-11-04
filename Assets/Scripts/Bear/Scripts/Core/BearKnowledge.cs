@@ -25,6 +25,8 @@ public enum ContactSource
 // that position is only the last known point.
 //
 // 1. Vision: every frame asks BearVision. Sees -> contact (Knows).
+//    While seeing, it also remembers where the player was, how he moved
+//    and where he looked - only then the bear can know it.
 // 2. Sound (from BearHearing):
 //    - while the bear SEES the player, sounds add nothing;
 //    - closer than closeSoundRadius -> exact contact (Knows), even if
@@ -35,10 +37,19 @@ public enum ContactSource
 //    - farther       -> only a clue: event SoundClue, BearBrain decides
 //                       whether to investigate.
 // 3. Losing the player: no sight AND no sound for loseContactTime
-//    seconds -> Unknown. Last point and movement direction are kept.
-// 4. Opinion "the player has noticed me" (D-16): changes only while
-//    the bear SEES the player - only then it can see where he looks.
-//    Reset when the player is lost.
+//    seconds -> Unknown. A state may ask for a longer memory (stalking
+//    hidden behind bushes, D-44). Last point and movement direction
+//    are kept.
+// 4. Opinion "the player has noticed me" (D-16, D-42, D-43): changes
+//    only while the bear SEES the player - only then it sees where he
+//    looks. The player must look STRAIGHT at the bear (a glance with
+//    the corner of the eye does not count) long enough, and the bear
+//    must not be fully hidden from him. The opinion fades after
+//    noticedForgetTime seconds without such a look: the bear decides it
+//    was not seen after all. Reset when the player is lost. It is only
+//    a guess and can be wrong.
+// 5. Estimate (D-44): without sight - where the player probably is
+//    now: a fresh sound, or the last seen point + last seen velocity.
 //
 // Mode changes are announced by the ModeChanged event (BearBrain
 // listens). Runs after BearAI / BearStateMachine and before the states,
@@ -60,8 +71,17 @@ public class BearKnowledge : MonoBehaviour
     public float soundAreaRepickTime = 1.5f;
 
     [Header("Losing the player (D-20)")]
-    [Tooltip("Knows -> Unknown after this many seconds without seeing AND without hearing the player.")]
+    [Tooltip("Knows -> Unknown after this many seconds without seeing AND without hearing the player. A state may ask for longer (stalking, D-44).")]
     public float loseContactTime = 3f;
+
+    [Header("Opinion 'the player has noticed me' (D-16, D-42, D-43)")]
+    [Tooltip("The player's look must point at the bear within this angle (deg). A glance with the corner of the eye does not count.")]
+    public float noticedLookAngle = 20f;
+    [Tooltip("...for this long (s), plus noticedLookTimePerMeter for every meter of distance.")]
+    public float noticedLookTime = 1f;
+    public float noticedLookTimePerMeter = 0.03f;
+    [Tooltip("This many seconds without such a look -> the bear decides it was not seen after all (D-43).")]
+    public float noticedForgetTime = 10f;
 
     [Header("Debug")]
     [Tooltip("Log every sound contact (2-3 per second while chasing).")]
@@ -81,13 +101,23 @@ public class BearKnowledge : MonoBehaviour
 
     public ContactSource LastContactSource { get; private set; } = ContactSource.None;
 
-    // D-16: the bear's OPINION "the player has noticed me" - not the
-    // truth (that is PlayerSightOfBear on the player). With its back to
-    // the player the bear cannot know about his look.
+    // The last moment the bear SAW the player: where he stood and where
+    // he looked (flat direction of his body).
+    public Vector3 LastSeenPosition { get; private set; }
+    public Vector3 PlayerLookDirection { get; private set; }
+    public float TimeSinceSeen => hasSeen ? Time.time - lastSeenTime : float.PositiveInfinity;
+
+    // D-16 / D-42: the bear's OPINION "the player has noticed me" - not
+    // the truth (that is PlayerSightOfBear on the player).
     public bool BelievesNoticed { get; private set; }
+    public int NoticedCount { get; private set; }       // how many times the opinion turned on
+    public float TimeSinceNoticed => NoticedCount > 0 ? Time.time - lastNoticedTime : float.PositiveInfinity;
 
     public float TimeSinceContact =>
         HasLastKnownPosition ? Time.time - lastContactTime : float.PositiveInfinity;
+
+    // Lose time now: the normal one or the one a state asked for.
+    public float CurrentLoseContactTime => loseContactOverride > 0f ? loseContactOverride : loseContactTime;
 
     // The player object itself - for components like PlayerDominance,
     // NOT for reading his position.
@@ -104,6 +134,12 @@ public class BearKnowledge : MonoBehaviour
     private Vector3 lastAreaCenter;
     private float lastAreaPickTime = -999f;
 
+    private bool hasSeen;
+    private float lastSeenTime;
+    private float lastNoticedTime;
+    private float lookTimer;
+    private float loseContactOverride;
+
     private void Awake()
     {
         vision = GetComponent<BearVision>();
@@ -113,7 +149,8 @@ public class BearKnowledge : MonoBehaviour
     }
 
     // ---------------------------------------------------------------
-    // Every frame: vision first, then "is the player lost?".
+    // Every frame: vision first, then the opinion, then "is the player
+    // lost?".
     // ---------------------------------------------------------------
     private void Update()
     {
@@ -122,15 +159,25 @@ public class BearKnowledge : MonoBehaviour
         if (IsSeeingPlayer)
         {
             LastKnownVelocity = ReadPlayerVelocity();
+            LastSeenPosition = vision.player.position;
+            PlayerLookDirection = Flat(vision.player.forward).normalized;
+            lastSeenTime = Time.time;
+            hasSeen = true;
+
             RegisterContact(vision.player.position, ContactSource.Vision);
             UpdateNoticedBelief();
-            return;
+        }
+        else
+        {
+            lookTimer = 0f;
         }
 
-        if (Mode == KnowledgeMode.Knows && TimeSinceContact >= loseContactTime)
+        FadeNoticedBelief();
+
+        if (!IsSeeingPlayer && Mode == KnowledgeMode.Knows && TimeSinceContact >= CurrentLoseContactTime)
         {
             SetMode(KnowledgeMode.Unknown,
-                "lost: no sight and no sound for " + loseContactTime + " s, last point " + LastKnownPosition);
+                "lost: no sight and no sound for " + CurrentLoseContactTime + " s, last point " + LastKnownPosition);
         }
     }
 
@@ -161,6 +208,36 @@ public class BearKnowledge : MonoBehaviour
         }
 
         SoundClue?.Invoke(soundEvent);
+    }
+
+    // ---------------------------------------------------------------
+    // Stalking (D-44): the bear follows hidden behind bushes, so it may
+    // go longer without seeing the player. The state that asks must
+    // reset it when it ends.
+    // ---------------------------------------------------------------
+    public void SetLoseContactTime(float seconds)
+    {
+        loseContactOverride = seconds;
+    }
+
+    public void ResetLoseContactTime()
+    {
+        loseContactOverride = 0f;
+    }
+
+    // ---------------------------------------------------------------
+    // Where the player probably is now (D-44). Seeing -> exactly.
+    // A sound newer than the last sight -> the sound point / area.
+    // Otherwise -> the last seen point moved by the last seen velocity,
+    // but not longer than maxPredictionTime (an old guess gets worse,
+    // so the bear has to go and check).
+    // ---------------------------------------------------------------
+    public Vector3 EstimatePlayerPosition(float maxPredictionTime)
+    {
+        if (IsSeeingPlayer || !hasSeen || LastContactSource == ContactSource.Sound)
+            return LastKnownPosition;
+
+        return LastSeenPosition + LastKnownVelocity * Mathf.Min(TimeSinceSeen, maxPredictionTime);
     }
 
     // ---------------------------------------------------------------
@@ -229,35 +306,81 @@ public class BearKnowledge : MonoBehaviour
         Debug.Log("[Knowledge] " + oldMode + " -> " + newMode + " (" + reason + ")");
 
         // Lost the player -> he no longer knows where the bear is either.
-        if (newMode == KnowledgeMode.Unknown && BelievesNoticed)
+        if (newMode == KnowledgeMode.Unknown)
         {
-            BelievesNoticed = false;
-            Debug.Log("[Knowledge] belief reset: the bear lost the player");
+            lookTimer = 0f;
+
+            if (BelievesNoticed)
+            {
+                BelievesNoticed = false;
+                Debug.Log("[Knowledge] belief reset: the bear lost the player");
+            }
         }
 
         ModeChanged?.Invoke(oldMode, newMode);
     }
 
     // ---------------------------------------------------------------
-    // D-16 opinion. Called only while the bear SEES the player.
-    // The player is looking at the bear right now (the fact from
-    // PlayerSightOfBear) -> "he has noticed me". Otherwise the opinion
-    // stays as it was.
+    // Opinion (D-16, D-42). Called only while the bear SEES the player.
+    // The player looks straight at the bear long enough -> "he has
+    // noticed me". Every such moment refreshes the opinion, so it lasts
+    // while he keeps looking.
     // ---------------------------------------------------------------
     private void UpdateNoticedBelief()
     {
+        if (!IsPlayerLookingAtBear())
+        {
+            lookTimer = 0f;
+            return;
+        }
+
+        lookTimer += Time.deltaTime;
+
+        float distance = Flat(transform.position - vision.player.position).magnitude;
+        float needed = noticedLookTime + noticedLookTimePerMeter * distance;
+
+        if (lookTimer < needed)
+            return;
+
+        lastNoticedTime = Time.time;
+
         if (BelievesNoticed)
             return;
 
-        if (playerSight == null && vision.player != null)
+        BelievesNoticed = true;
+        NoticedCount++;
+        Debug.Log("[Knowledge] bear believes it is NOTICED: the player looks straight at it (" +
+                  needed.ToString("F1") + " s, " + distance.ToString("F1") + " m)");
+    }
+
+    // The player's body faces the bear (within noticedLookAngle) and the
+    // bear is not fully hidden from him - it knows whether it stands in
+    // the open, behind a bush or behind a rock.
+    private bool IsPlayerLookingAtBear()
+    {
+        Vector3 toBear = Flat(transform.position - vision.player.position);
+
+        if (toBear.sqrMagnitude < 0.01f)
+            return true;
+
+        if (PlayerLookDirection == Vector3.zero || Vector3.Angle(PlayerLookDirection, toBear) > noticedLookAngle)
+            return false;
+
+        if (playerSight == null)
             playerSight = vision.player.GetComponent<PlayerSightOfBear>();
 
-        if (playerSight == null || !playerSight.IsWatchingBear)
+        return playerSight == null || playerSight.VisibleShare > 0f;
+    }
+
+    // D-43: no straight look for noticedForgetTime -> "he did not see me".
+    private void FadeNoticedBelief()
+    {
+        if (!BelievesNoticed || Time.time - lastNoticedTime < noticedForgetTime)
             return;
 
-        BelievesNoticed = true;
-        Debug.Log("[Knowledge] bear believes it is NOTICED: it sees the player looking at it, " +
-                  playerSight.DistanceToBear.ToString("F1") + " m");
+        BelievesNoticed = false;
+        Debug.Log("[Knowledge] belief faded: " + noticedForgetTime +
+                  " s without the player looking at the bear - it thinks it was not seen (D-43)");
     }
 
     // The bear sees the player, so it may see how he moves.
@@ -272,5 +395,11 @@ public class BearKnowledge : MonoBehaviour
         Vector3 velocity = playerAwareness.Velocity;
         velocity.y = 0f;
         return velocity;
+    }
+
+    private static Vector3 Flat(Vector3 vector)
+    {
+        vector.y = 0f;
+        return vector;
     }
 }

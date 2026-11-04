@@ -26,6 +26,9 @@ public class PlayerBehaviorTracker : MonoBehaviour
     public float fallbackRunSpeed = 6f;
     [Range(0f, 1f)]
     public float towardBearDot = 0.5f;       // 0.5 = within ~60 deg of bear direction
+    [Tooltip("Hysteresis: once 'toward the bear', it stops only below this dot (0.3 = ~72 deg). Walking around the bear at ~60 deg no longer flickers.")]
+    [Range(0f, 1f)]
+    public float towardBearExitDot = 0.3f;
 
     [Header("Camera")]
     [Tooltip("Smoothing of camera rotation speed, seconds. Single twitches are ignored.")]
@@ -202,8 +205,11 @@ public class PlayerBehaviorTracker : MonoBehaviour
         float speed = playerAwareness.Speed;
         IsStanding = speed < standingSpeedThreshold;
 
+        // Hysteresis: easier to stay "toward the bear" than to become it,
+        // so circling the bear near the border does not flicker 1 / 0.
         float dotToBear = Vector3.Dot(playerAwareness.Direction, directionToBear);
-        IsMovingTowardBear = !IsStanding && dotToBear > towardBearDot;
+        float towardThreshold = IsMovingTowardBear ? towardBearExitDot : towardBearDot;
+        IsMovingTowardBear = !IsStanding && dotToBear > towardThreshold;
 
         if (playerController != null)
         {

@@ -384,6 +384,8 @@ MonoBehaviour:
   behindAngle: 130
   repickTime: {x: 5, y: 8}
   arriveDistance: 1.5
+  maxLeadTime: 5
+  seeFromHereWeight: 1.5
   walkTime: {x: 3, y: 8}
   pauseTime: {x: 1, y: 3}
   turnSpeed: 120
@@ -391,7 +393,10 @@ MonoBehaviour:
   speedBonus: 0.5
   minSpeed: 2
   maxSpeed: 9.5
-  catchUpDistance: 80
+  catchUpMargin: 5
+  catchUpSpeedBonus: 2.5
+  assumeMovingAfter: 2
+  assumedPlayerSpeed: 4
   freezeViewAngle: 50
   unfreezeDelay: 0.5
   peekAfter: 10
@@ -405,7 +410,10 @@ MonoBehaviour:
   playerRunSpeed: 6
   pursuitDistanceFactor: 0.6
   pursuitTime: 15
+  stubPatternToEncounter: 0
+  stubApproachSpeedBonus: 1.5
   bodyHeight: 0.9
+  bodyHalfLength: 0.9
   playerEyeHeight: 1.6
   logChoices: 1
 --- !u!4 &694889810 stripped

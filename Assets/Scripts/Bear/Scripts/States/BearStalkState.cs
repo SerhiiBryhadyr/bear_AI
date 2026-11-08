@@ -1,3 +1,4 @@
+using System.Text;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -7,8 +8,12 @@ using UnityEngine.AI;
 // the bear is. The bear follows him hidden, so BearPlayerAnalysis can
 // read his behaviour (and later pick a pattern).
 //
-// 1. Hiding place (D-35): a few RANDOM points around the player, the
-//    best one the bear found wins (it may miss the ideal spot - fair).
+// 1. Hiding place (D-35): RANDOM points around the player, the best one
+//    the bear found wins (it may miss the ideal spot - fair). Points go
+//    to both sides of his route, more to the bear's own side (8.11:
+//    14 / 10; before - 9 own, 3 anywhere, so the other side got ~1 and
+//    the bear never found the bushes across the field), only
+//    alongside-behind him (pointSector), nothing ahead.
 //    The points are taken around the place where the player WILL be
 //    when the bear gets there (his last seen velocity x travel time),
 //    otherwise the bear always arrives where he used to be (tests 2.11:
@@ -22,9 +27,14 @@ using UnityEngine.AI;
 //    commits to it: a new choice only when the place went bad or after
 //    repickTime - no twitching every second. Its own side gets a bonus:
 //    it crosses only when the other side has clearly better cover, and
-//    never right under the player's eyes.
+//    never right under the player's eyes. The side is "left / right of
+//    his route": when the player turns more than sideTurnAngle, it is
+//    read again from where the bear actually stands (8.11: after a
+//    turn the old side sent the bear across the open field).
 // 2. Rhythm: walks walkTime, stops pauseTime and turns to the player,
-//    walks again - not a gliding ghost. Speed follows the player.
+//    walks again - not a gliding ghost. It stops only in cover
+//    (pauseMaxExposure); in the open it walks on (8.11: 9 of 25 pauses
+//    were in the open). Speed follows the player.
 //    Fallen behind (farther than the hiding ring, or far behind its own
 //    chosen place) -> no pauses and faster, until it has caught up.
 // 3. Head (D-32 logic): while walking its own way the bear turns its
@@ -32,10 +42,17 @@ using UnityEngine.AI;
 //    head turn comes with D-32.
 // 4. The bear sees the player looking its way -> freezes.
 // 5. Without sight (D-44): follows by ear and prediction
-//    (BearKnowledge.EstimatePlayerPosition). After peekAfter seconds it
-//    must check: steps out to a place with a view to where the player
-//    should be. Nothing there -> BearKnowledge loses the player after
-//    stalkLoseContactTime -> SearchLastKnown.
+//    (BearKnowledge.EstimatePlayerPosition). No contact at all - no
+//    sight AND no sound - for noContactPeekTime seconds -> it does not
+//    wait, it peeks: steps out to a place with a view toward where the
+//    player probably is (where it last knew him + a short way along his
+//    route: he either stopped or walked on, the view cone covers both).
+//    Not more often than peekInterval (dense bushes block its own view
+//    all the time). Hears him -> knows where he is, no peek (8.11:
+//    before - 10 s by sight only, the bear waited at the old spot while
+//    the player quietly walked on, and lost him). Nothing there ->
+//    BearKnowledge loses the player after stalkLoseContactTime ->
+//    SearchLastKnown.
 // 6. Spotted (D-42, simplified): close -> Encounter (Tracking); far ->
 //    stands and reads the player: he runs -> "he saw me" -> follows
 //    faster and closer, still hidden; he walks on -> "he did not see
@@ -45,6 +62,10 @@ using UnityEngine.AI;
 //    spotted -> it walks openly to the player -> Encounter. Every choice
 //    is used once; an unused one is still valid when the bear finds the
 //    player again (D-38). Switch off: stubPatternToEncounter.
+// 8. DEBUG LOGS - TEMPORARY (8.11, tuning the side rule): [Candidates]
+//    on every choice, [StalkTick] every second, [Rhythm] on pauses and
+//    arrivals. Behaviour does not depend on them. Remove when the
+//    algorithm is approved.
 // =====================================================================
 public class BearStalkState : BearStateBehaviour
 {
@@ -54,11 +75,14 @@ public class BearStalkState : BearStateBehaviour
     [Tooltip("Random points are taken in a ring around the player, from minDistance to searchRadius (m).")]
     public float minDistance = 12f;
     public float searchRadius = 50f;
-    [Tooltip("Random points checked per choice. Few on purpose: the bear may miss the ideal spot.")]
-    public int candidateCount = 12;
-    [Tooltip("Share of the points taken on the bear's own side of the player's route.")]
-    [Range(0f, 1f)]
-    public float ownSideShare = 0.75f;
+    [Tooltip("Random points per choice on the bear's own side of the player's route. Side not known yet -> all points split half / half.")]
+    public int ownSidePoints = 14;
+    [Tooltip("Random points per choice on the other side - so it can find better cover there (crossing still needs the side bonus to pay off).")]
+    public int otherSidePoints = 10;
+    [Tooltip("Where the points go on each side, deg from the player's route: 40 = alongside-ahead, 180 = straight behind. Nothing straight ahead.")]
+    public Vector2 pointSector = new Vector2(40f, 180f);
+    [Tooltip("The player's route turned more than this (deg) since the bear's side was set -> the side is read again from where the bear actually stands.")]
+    public float sideTurnAngle = 60f;
     [Tooltip("Preferred distance to the player behind cover (m).")]
     public float coverDistance = 20f;
     [Tooltip("Preferred distance in the open (m): nothing hides the bear, so farther.")]
@@ -76,6 +100,9 @@ public class BearStalkState : BearStateBehaviour
     [Header("Rhythm (not a gliding ghost)")]
     public Vector2 walkTime = new Vector2(3f, 8f);
     public Vector2 pauseTime = new Vector2(1f, 3f);
+    [Tooltip("Stops for a pause only where the player could see it less than this (visible x 1 in his view, x 0.5 out of it - the same rule as for hiding places). Otherwise walks on and checks again every 0.5 s.")]
+    [Range(0f, 1f)]
+    public float pauseMaxExposure = 0.5f;
     public float turnSpeed = 120f;
 
     [Header("Speed")]
@@ -98,8 +125,12 @@ public class BearStalkState : BearStateBehaviour
     public float unfreezeDelay = 0.5f;
 
     [Header("Without sight (D-44)")]
-    [Tooltip("Without seeing the player this long (s) the bear steps out to check.")]
-    public float peekAfter = 10f;
+    [Tooltip("No contact at all - no sight and no sound - this long (s) -> the bear peeks out to find the player again.")]
+    public float noContactPeekTime = 4f;
+    [Tooltip("A new peek not sooner than this after the last one (s): in dense bushes the bear loses sight all the time.")]
+    public float peekInterval = 8f;
+    [Tooltip("Where to look when peeking: the player may have walked on along his route for up to this long (s) - the bear looks halfway (stood still / walked on).")]
+    public float peekLeadTime = 4f;
     [Tooltip("While stalking the player is lost only after this long without sight and sound (s). Normal - BearKnowledge.loseContactTime.")]
     public float stalkLoseContactTime = 15f;
     [Tooltip("The last seen velocity is used for prediction at most this long (s).")]
@@ -137,6 +168,13 @@ public class BearStalkState : BearStateBehaviour
 
     [Header("Debug")]
     public bool logChoices = true;
+    [Tooltip("TEMPORARY (8.11): every choice of a hiding place -> [Candidates]: the bear's side, how many points on each side, the best ones with every part of their score.")]
+    public bool logCandidates = true;
+    [Tooltip("How many of the best points [Candidates] lists.")]
+    public int logCandidatesTop = 6;
+    [Tooltip("TEMPORARY (8.11): every tickInterval s -> [StalkTick] (where the bear is against the REAL player), plus [Rhythm] on pauses and arrivals.")]
+    public bool logTick = true;
+    public float tickInterval = 1f;
 
     private enum Phase { Walk, Pause, Freeze, Read, Peek, Approach }
 
@@ -163,6 +201,7 @@ public class BearStalkState : BearStateBehaviour
     private float repickTimer;
     private float checkTimer;
     private float freezeReleaseTimer;
+    private int pauseSkips;             // pause checks skipped in the open during this walk
 
     private bool hasTarget;
     private bool arrived;
@@ -174,12 +213,39 @@ public class BearStalkState : BearStateBehaviour
     private float[] candidateScores;
     private bool[] candidateOtherSide;
 
+    // Debug (TEMPORARY, 8.11): what each candidate's score is made of.
+    private struct CandidateParts
+    {
+        public int side;              // +1 right of the route, -1 left, 0 behind / ahead
+        public float angle;           // deg from the player's route: 0 = ahead, 180 = straight behind
+        public float distance;        // m from the anchor (where the player will be)
+        public float ideal;           // preferred distance for this much cover (m)
+        public float visible;         // 0..1: how much of the bear the player could see there
+        public bool inView;           // inside the player's view cone (freezeViewAngle)
+        public float hidden;          // score part: (1 - exposure) x 3
+        public float distanceScore;   // score part: closeness to ideal x 1.5
+        public float behind;          // score part: alongside-behind (0..1)
+        public float watch;           // score part: sees him from cover x seeFromHereWeight
+        public float trip;            // m from the bear (score part: -trip / 40, at most -1)
+        public string rejected;       // why the point is out (-100), or null
+    }
+
+    private CandidateParts[] candidateParts;
+    private float[] candidateFinal;       // score + side bonus
+    private bool[] candidateIsCurrent;    // the current place (keep bonus)
+    private float tickTimer;
+    private Vector3 lastTickBear;
+    private Vector3 lastTickPlayer;
+
     private Vector3 peekPoint;
+    private Vector3 peekAim;            // where the bear looks from the peek point
     private bool peekArrived;
     private int peekAttempts;
+    private float lastPeekTime = -999f;
 
     private Vector3 route;              // the player's movement direction (flat), last seen
     private int side;                   // +1 right of the route, -1 left, 0 unknown
+    private Vector3 sideRoute;          // the player's route when "side" was set
     private int knownNoticedCount;
     private float pursuitUntil = -999f;
 
@@ -204,8 +270,14 @@ public class BearStalkState : BearStateBehaviour
         arrived = false;
         lagging = false;
         side = 0;
+        sideRoute = Vector3.zero;
         peekAttempts = 0;
+        lastPeekTime = -999f;
         StartWalk();
+
+        tickTimer = 0f;
+        lastTickBear = transform.position;
+        lastTickPlayer = Knowledge.Player != null ? Knowledge.Player.position : transform.position;
 
         Debug.Log("Bear entered STALKING (contact: " + Knowledge.LastContactSource + ")");
     }
@@ -245,6 +317,8 @@ public class BearStalkState : BearStateBehaviour
         // The head follows where the bear thinks the player is (D-32 logic).
         vision.SetLookTarget(player + Vector3.up * PlayerChestHeight());
 
+        LogTick();                                          // debug, temporary
+
         if (phase == Phase.Approach)
         {
             UpdateApproach(player, distance);
@@ -266,7 +340,10 @@ public class BearStalkState : BearStateBehaviour
         if (TryStartStub(distance))
             return;
 
-        if (phase != Phase.Peek && Knowledge.TimeSinceSeen >= peekAfter)
+        // No sight and no sound for a while -> peek (D-44, 8.11). Hears him
+        // -> TimeSinceContact stays small -> it knows where he is, no peek.
+        if (phase != Phase.Peek && Knowledge.TimeSinceContact >= noContactPeekTime &&
+            Time.time - lastPeekTime >= peekInterval)
             StartPeek(player);
 
         if (phase == Phase.Peek)
@@ -461,20 +538,23 @@ public class BearStalkState : BearStateBehaviour
     }
 
     // ---------------------------------------------------------------
-    // Peek (D-44): too long without seeing the player -> step out to a
-    // place with a view to where he should be, look, hide again.
+    // Peek (D-44): no sight and no sound for a while -> step out to a
+    // place with a view toward where he probably is, look, hide again.
     // ---------------------------------------------------------------
     private void StartPeek(Vector3 player)
     {
         peekAttempts++;
+        lastPeekTime = Time.time;
         phase = Phase.Peek;
         phaseTimer = peekLookTime;
         peekArrived = false;
         destinationSet = false;
 
+        peekAim = PeekAim(player);
+
         float bestView = -1f;
         peekPoint = transform.position;
-        Vector3 playerChest = player + Vector3.up * PlayerChestHeight();
+        Vector3 playerChest = peekAim + Vector3.up * PlayerChestHeight();
 
         for (int i = 0; i < 8; i++)
         {
@@ -494,10 +574,10 @@ public class BearStalkState : BearStateBehaviour
             }
         }
 
-        // No view from around here - step toward where the player should be.
+        // No view from around here - step toward where the player probably is.
         if (bestView < 0.25f)
         {
-            Vector3 toPlayer = Flat(player - transform.position);
+            Vector3 toPlayer = Flat(peekAim - transform.position);
             Vector3 step = transform.position + toPlayer.normalized * Mathf.Min(peekSearchRadius, toPlayer.magnitude * 0.5f);
 
             if (NavMesh.SamplePosition(step, out NavMeshHit stepHit, 3f, NavMesh.AllAreas))
@@ -505,20 +585,44 @@ public class BearStalkState : BearStateBehaviour
         }
 
         float unseen = Knowledge.TimeSinceSeen;
-        string since = float.IsInfinity(unseen) ? "has not seen the player yet" : unseen.ToString("F0") + " s without seeing the player";
-        Debug.Log("[Stalk] PEEK: " + since + " - steps out to check (D-44)");
+        string since = float.IsInfinity(unseen) ? "has not seen the player yet" : unseen.ToString("F0") + " s without seeing him";
+        Debug.Log("[Stalk] PEEK #" + peekAttempts + ": " + Knowledge.TimeSinceContact.ToString("F0") + " s without sight and sound (" + since +
+                  ") - steps out " + FlatDistance(transform.position, peekPoint).ToString("F0") + " m to look where he probably is (" +
+                  FlatDistance(player, peekAim).ToString("F0") + " m on along his route from the bear's estimate), view from there " +
+                  Pct(Mathf.Max(bestView, 0f)) + " (D-44)");
+    }
+
+    // Where to look from the peek point (8.11): where the bear last knew
+    // the player + half the way he could have walked on along his route
+    // (he either stood still or walked on - the view cone, +-45 deg,
+    // covers both from 20-50 m). Seen walking -> the estimate already
+    // moves on with his velocity.
+    private Vector3 PeekAim(Vector3 estimate)
+    {
+        if (route == Vector3.zero || Flat(Knowledge.LastKnownVelocity).magnitude >= 1f)
+            return estimate;
+
+        float time = Mathf.Min(Knowledge.TimeSinceContact, peekLeadTime);
+        return estimate + route * (assumedPlayerSpeed * time * 0.5f);
     }
 
     private void UpdatePeek(Vector3 player)
     {
-        if (Knowledge.IsSeeingPlayer)
+        // Contact again - sees him, or hears him (then it knows where he
+        // is too; 8.11: before only sight ended a peek, after hearing him
+        // the bear stood at the peek point).
+        if (Knowledge.IsSeeingPlayer || Knowledge.TimeSinceContact < 0.5f)
         {
-            Debug.Log("[Stalk] peek: the player is there (" + FlatDistance(player, transform.position).ToString("F0") +
-                      " m) - back to hiding");
+            Debug.Log("[Stalk] peek: " + (Knowledge.IsSeeingPlayer ? "sees" : "hears") + " the player (" +
+                      FlatDistance(player, transform.position).ToString("F0") + " m) - back to hiding");
+            peekAttempts = 0;
             hasTarget = false;
             StartWalk();
             return;
         }
+
+        // The head looks where the player probably is, not at the old estimate.
+        vision.SetLookTarget(peekAim + Vector3.up * PlayerChestHeight());
 
         if (!peekArrived)
         {
@@ -539,7 +643,7 @@ public class BearStalkState : BearStateBehaviour
             return;
         }
 
-        Movement.FaceTowards(player, turnSpeed);
+        Movement.FaceTowards(peekAim, turnSpeed);
 
         phaseTimer -= Time.deltaTime;
         if (phaseTimer > 0f)
@@ -596,6 +700,7 @@ public class BearStalkState : BearStateBehaviour
         {
             arrived = true;
             repickTimer = Mathf.Min(repickTimer, 1.5f);     // the player moves on - next place soon
+            LogRhythm("ARRIVED at its place");              // debug, temporary
         }
 
         // Fallen behind, or much farther from the player than its own
@@ -631,9 +736,32 @@ public class BearStalkState : BearStateBehaviour
             destinationSet = true;
         }
 
+        // Time for a pause - only in cover (8.11). In the open it walks on
+        // and looks again in 0.5 s, until it is hidden or at its place.
         phaseTimer -= dt;
         if (phaseTimer <= 0f && mayPause)
-            StartPause();
+        {
+            float exposure = Exposure(transform.position, player);
+            if (exposure < pauseMaxExposure)
+            {
+                StartPause();
+            }
+            else
+            {
+                if (pauseSkips == 0)
+                    LogRhythm("no pause here (exposure " + exposure.ToString("F2") + ") - walks on to cover");   // debug, temporary
+                pauseSkips++;
+                phaseTimer = 0.5f;
+            }
+        }
+    }
+
+    // How much the player could see the bear at this point: visible x 1
+    // in his view, x OutOfViewExposure out of it (the rule of the places).
+    private float Exposure(Vector3 point, Vector3 player)
+    {
+        Vector3 fromPlayer = Flat(point - player);
+        return VisibleFromPlayer(point, player) * (InPlayerView(fromPlayer) ? 1f : OutOfViewExposure);
     }
 
     // Fallen behind = farther than the hiding ring + catchUpMargin
@@ -682,24 +810,68 @@ public class BearStalkState : BearStateBehaviour
             minD = Mathf.Max(minD, spottedMinDistance);
         float maxD = Mathf.Max(minD + 5f, searchRadius * scale);
 
-        if (side == 0)
-            side = SideOf(transform.position - player);
+        // The player turned (8.11): "own side" is left / right of HIS ROUTE,
+        // so after a big turn the old side may lie across his path (the
+        // bear walked through the open field to get there). Read the side
+        // again from where the bear actually stands; straight behind /
+        // ahead (0) -> a free choice, like the first one.
+        if (side != 0 && route != Vector3.zero && sideRoute != Vector3.zero)
+        {
+            float turned = Vector3.Angle(route, sideRoute);
+            if (turned > sideTurnAngle)
+            {
+                int was = side;
+                side = SideOf(transform.position - player);
+                sideRoute = route;
 
-        // 1. Score the current place and the random points.
-        EnsureBuffers(candidateCount + 1);
+                if (logChoices)
+                    Debug.Log("[Stalk] the player turned " + turned.ToString("F0") + " deg - own side re-read from where the bear stands: " +
+                              SideName(side) + " (was " + SideName(was) + ")" + (side == 0 ? " - free choice" : ""));
+            }
+        }
+
+        bool firstPick = side == 0;                         // debug: the side is set right now
+        if (side == 0)
+        {
+            side = SideOf(transform.position - player);
+            sideRoute = route;
+        }
+        int sideBefore = side;                              // debug
+
+        // 1. Score the current place and the random points: ownSidePoints
+        //    on its own side, otherSidePoints on the other one (side not
+        //    known yet -> half right, half left).
+        int total = Mathf.Max(0, ownSidePoints) + Mathf.Max(0, otherSidePoints);
+        EnsureBuffers(total + 1);
         int count = 0;
 
         if (hasTarget && !currentWentBad)
             count = AddCandidate(target, KeepBonus, count, anchor, minD, maxD, scale);
 
-        int ownCount = Mathf.RoundToInt(candidateCount * ownSideShare);
+        int askedOwnSide = 0;                               // debug (side unknown: right)
+        int askedOtherSide = 0;                             // debug (side unknown: left)
+        int noNavMesh = 0;                                  // debug: points with no NavMesh near
 
-        for (int i = 0; i < candidateCount; i++)
+        for (int i = 0; i < total; i++)
         {
-            Vector3 candidate = anchor + CandidateDirection(i < ownCount) * Random.Range(minD, maxD);
+            int pointSide;                                  // +1 right of the route, -1 left
+            if (side != 0)
+                pointSide = i < ownSidePoints ? side : -side;
+            else
+                pointSide = i % 2 == 0 ? 1 : -1;
+
+            if (pointSide == side || (side == 0 && pointSide > 0))
+                askedOwnSide++;
+            else
+                askedOtherSide++;
+
+            Vector3 candidate = anchor + CandidateDirection(pointSide) * Random.Range(minD, maxD);
 
             if (!NavMesh.SamplePosition(candidate, out NavMeshHit hit, 5f, NavMesh.AllAreas))
+            {
+                noNavMesh++;
                 continue;
+            }
 
             count = AddCandidate(hit.position, 0f, count, anchor, minD, maxD, scale);
         }
@@ -712,25 +884,35 @@ public class BearStalkState : BearStateBehaviour
         bool found = false;
         float bestScore = -50f;
         Vector3 best = transform.position;
+        int bestIndex = -1;                                 // debug
 
         for (int i = 0; i < count; i++)
         {
             float score = candidateScores[i];
             if (score <= -50f)
+            {
+                candidateFinal[i] = score;
                 continue;                                   // outside the ring / crossing under his eyes
+            }
 
             if (!candidateOtherSide[i])
                 score += SideBonus;
+            candidateFinal[i] = score;
 
             if (score > bestScore)
             {
                 bestScore = score;
                 best = candidatePoints[i];
+                bestIndex = i;
                 found = true;
             }
         }
 
         repickTimer = Random.Range(repickTime.x, repickTime.y);
+
+        if (logCandidates)
+            LogCandidates(count, bestIndex, firstPick, sideBefore, anchor, player, bearDistance, minD, maxD,
+                          askedOwnSide, askedOtherSide, noNavMesh, currentWentBad);
 
         if (!found)
         {
@@ -745,8 +927,11 @@ public class BearStalkState : BearStateBehaviour
 
         int newSide = SideOf(best - anchor);
         bool crossing = side != 0 && newSide != 0 && newSide != side;
-        if (newSide != 0)
+        if (newSide != 0 && newSide != side)
+        {
             side = newSide;
+            sideRoute = route;                              // the side means "of THIS route" from now on
+        }
 
         target = best;
         hasTarget = true;
@@ -768,11 +953,13 @@ public class BearStalkState : BearStateBehaviour
     // Scores one point and stores it for the side rule.
     private int AddCandidate(Vector3 point, float bonus, int count, Vector3 anchor, float minD, float maxD, float scale)
     {
-        float score = Score(point, anchor, minD, maxD, scale, out bool otherSide);
+        float score = Score(point, anchor, minD, maxD, scale, out bool otherSide, out CandidateParts parts);
 
         candidatePoints[count] = point;
         candidateScores[count] = score + bonus;
         candidateOtherSide[count] = otherSide;
+        candidateParts[count] = parts;                      // debug
+        candidateIsCurrent[count] = bonus > 0f;             // debug
         return count + 1;
     }
 
@@ -784,22 +971,23 @@ public class BearStalkState : BearStateBehaviour
         candidatePoints = new Vector3[size];
         candidateScores = new float[size];
         candidateOtherSide = new bool[size];
+        candidateParts = new CandidateParts[size];
+        candidateFinal = new float[size];
+        candidateIsCurrent = new bool[size];
     }
 
-    // Own-side points: alongside-behind the route on the bear's side;
-    // the rest anywhere (so it can still cross when the other side is better).
-    private Vector3 CandidateDirection(bool wantOwnSide)
+    // A direction from the anchor on the given side of the player's route
+    // (+1 right, -1 left), alongside-behind him (pointSector), never ahead.
+    private Vector3 CandidateDirection(int pointSide)
     {
-        bool ownSide = wantOwnSide && side != 0 && route != Vector3.zero;
-
-        if (ownSide)
+        if (route == Vector3.zero)
         {
-            float angle = Random.Range(40f, 170f) * side;
-            return Quaternion.AngleAxis(angle, Vector3.up) * route;
+            Vector2 random = Random.insideUnitCircle.normalized;   // no route known - anywhere
+            return new Vector3(random.x, 0f, random.y);
         }
 
-        Vector2 random = Random.insideUnitCircle.normalized;
-        return new Vector3(random.x, 0f, random.y);
+        float angle = Random.Range(pointSector.x, pointSector.y) * pointSide;
+        return Quaternion.AngleAxis(angle, Vector3.up) * route;
     }
 
     // ---------------------------------------------------------------
@@ -810,33 +998,49 @@ public class BearStalkState : BearStateBehaviour
     // watches him from cover", then "alongside-behind"; a long trip
     // there costs a bit.
     // ---------------------------------------------------------------
+    // "parts" - the same numbers one by one, only for the debug log.
     private float Score(Vector3 point, Vector3 player, float minD, float maxD, float scale,
-                        out bool otherSide)
+                        out bool otherSide, out CandidateParts parts)
     {
         otherSide = false;
+        parts = new CandidateParts();
 
         Vector3 fromPlayer = Flat(point - player);
         float distance = fromPlayer.magnitude;
 
+        parts.distance = distance;
+        parts.side = SideOf(fromPlayer);
+        parts.angle = route != Vector3.zero ? Vector3.Angle(route, fromPlayer) : -1f;
+        parts.trip = FlatDistance(transform.position, point);
+
         if (distance < minD - 1f || distance > maxD + 10f)
+        {
+            parts.rejected = "outside the ring";
             return -100f;
+        }
 
         float visible = VisibleFromPlayer(point, player);
         bool inView = InPlayerView(fromPlayer);
         float exposure = visible * (inView ? 1f : OutOfViewExposure);
 
+        parts.visible = visible;
+        parts.inView = inView;
+
         // Crossing the route right under the player's eyes - never.
-        int pointSide = SideOf(fromPlayer);
+        int pointSide = parts.side;
         otherSide = side != 0 && pointSide != 0 && pointSide != side;
         if (otherSide && inView)
+        {
+            parts.rejected = "other side, in his view";
             return -100f;
+        }
 
         float ideal = Mathf.Clamp(Mathf.Lerp(coverDistance, openDistance, visible) * scale, minD, maxD);
         float distanceScore = 1f - Mathf.Clamp01(Mathf.Abs(distance - ideal) / 30f);
 
         float behindScore = 0.5f;
         if (route != Vector3.zero)
-            behindScore = 1f - Mathf.Clamp01(Mathf.Abs(Vector3.Angle(route, fromPlayer) - behindAngle) / 130f);
+            behindScore = 1f - Mathf.Clamp01(Mathf.Abs(parts.angle - behindAngle) / 130f);
 
         // Watching FROM COVER (D-35: "behind a wall of bushes"): the more
         // hidden the place, the bigger the bonus; open ground gets none
@@ -844,10 +1048,15 @@ public class BearStalkState : BearStateBehaviour
         // the player across a field).
         float cover = 1f - visible;
         float watch = cover > 0f && SeesPlayerFrom(point, player) ? cover : 0f;
-        float trip = Mathf.Clamp01(FlatDistance(transform.position, point) / 40f);
+        float trip = Mathf.Clamp01(parts.trip / 40f);
 
-        return (1f - exposure) * 3f + distanceScore * 1.5f + behindScore
-             + watch * seeFromHereWeight - trip;
+        parts.ideal = ideal;
+        parts.hidden = (1f - exposure) * 3f;
+        parts.distanceScore = distanceScore * 1.5f;
+        parts.behind = behindScore;
+        parts.watch = watch * seeFromHereWeight;
+
+        return parts.hidden + parts.distanceScore + parts.behind + parts.watch - trip;
     }
 
     private bool IsStillGood(Vector3 point, Vector3 player, float scale)
@@ -979,6 +1188,7 @@ public class BearStalkState : BearStateBehaviour
         phase = Phase.Walk;
         phaseTimer = Random.Range(walkTime.x, walkTime.y);
         destinationSet = false;
+        pauseSkips = 0;
     }
 
     private void StartPause()
@@ -987,6 +1197,10 @@ public class BearStalkState : BearStateBehaviour
         phaseTimer = Random.Range(pauseTime.x, pauseTime.y);
         Movement.Stop();
         destinationSet = false;
+
+        LogRhythm("PAUSE " + phaseTimer.ToString("F1") + " s on the way, " +
+                  FlatDistance(transform.position, target).ToString("F0") + " m to its place" +
+                  (pauseSkips > 0 ? ", after walking on " + (pauseSkips * 0.5f).ToString("F1") + " s in the open" : ""));   // debug, temporary
     }
 
     // Eye / chest height of the player above the point the bear tracks
@@ -1015,6 +1229,18 @@ public class BearStalkState : BearStateBehaviour
             playerBody = Knowledge.Player.GetComponent<CharacterController>();
     }
 
+    // Side for logs: R / L / mid (straight behind or ahead).
+    private static string SideName(int s)
+    {
+        return s > 0 ? "R" : s < 0 ? "L" : "mid";
+    }
+
+    // Share for logs: 0.42 -> "42%".
+    private static string Pct(float value)
+    {
+        return Mathf.RoundToInt(value * 100f) + "%";
+    }
+
     private static Vector3 Flat(Vector3 vector)
     {
         vector.y = 0f;
@@ -1026,6 +1252,206 @@ public class BearStalkState : BearStateBehaviour
         a.y = 0f;
         b.y = 0f;
         return Vector3.Distance(a, b);
+    }
+
+    // ===============================================================
+    // DEBUG LOGS - TEMPORARY (8.11, tuning the side rule).
+    // Behaviour does not depend on anything below. Remove when the
+    // algorithm is approved (and the struct, arrays and calls marked
+    // "debug" above).
+    // ===============================================================
+
+    // [Candidates] - one entry per choice of a hiding place: the bear's
+    // side, how many points landed on each side, the best ones with
+    // every part of their score, the best one on the other side.
+    private void LogCandidates(int count, int bestIndex, bool firstPick, int sideBefore, Vector3 anchor, Vector3 player,
+                               float bearDistance, float minD, float maxD, int askedOwnSide, int askedOtherSide,
+                               int noNavMesh, bool currentWentBad)
+    {
+        // Count the points by side (R / L / behind-ahead) and the rejected ones.
+        int right = 0;
+        int left = 0;
+        int middle = 0;
+        int outsideRing = 0;
+        int crossingInView = 0;
+
+        for (int i = 0; i < count; i++)
+        {
+            if (candidateParts[i].rejected == "outside the ring")
+                outsideRing++;
+            else if (candidateParts[i].rejected != null)
+                crossingInView++;
+            else if (candidateParts[i].side > 0)
+                right++;
+            else if (candidateParts[i].side < 0)
+                left++;
+            else
+                middle++;
+        }
+
+        // Order: best final score first (insertion sort, count <= 13).
+        int[] order = new int[count];
+        for (int i = 0; i < count; i++)
+            order[i] = i;
+
+        for (int i = 1; i < count; i++)
+        {
+            int key = order[i];
+            int j = i - 1;
+            while (j >= 0 && candidateFinal[order[j]] < candidateFinal[key])
+            {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = key;
+        }
+
+        StringBuilder text = new StringBuilder();
+
+        text.Append("[Candidates] t=").Append(Time.time.ToString("F1"))
+            .Append(" | bear side ").Append(SideName(sideBefore))
+            .Append(firstPick ? " (FIRST pick: side set from where the bear stands)" : "")
+            .Append(" | bear now ").Append(bearDistance.ToString("F0")).Append(" m from the player, ")
+            .Append(SideName(SideOf(transform.position - player))).Append(" of his route")
+            .Append(" | player speed (bear's idea) ").Append(PlayerSpeed().ToString("F1")).Append(" m/s, anchor ")
+            .Append(FlatDistance(anchor, player).ToString("F0")).Append(" m ahead of him")
+            .Append(" | ring ").Append(minD.ToString("F0")).Append("-").Append(maxD.ToString("F0")).Append(" m")
+            .Append(currentWentBad ? " | the old place WENT BAD" : "")
+            .Append(sideBefore != 0 ? "\n  asked: own side " : "\n  asked (side unknown): R ").Append(askedOwnSide)
+            .Append(sideBefore != 0 ? ", other side " : ", L ").Append(askedOtherSide)
+            .Append(", no NavMesh ").Append(noNavMesh)
+            .Append(" | valid: R ").Append(right).Append(", L ").Append(left).Append(", mid ").Append(middle)
+            .Append(" | rejected: outside ring ").Append(outsideRing).Append(", other side in his view ").Append(crossingInView);
+
+        // The best ones.
+        int shown = 0;
+        bool otherSideShown = false;
+        for (int r = 0; r < count && shown < logCandidatesTop; r++)
+        {
+            int i = order[r];
+            if (candidateParts[i].rejected != null)
+                continue;
+
+            text.Append("\n").Append(CandidateLine(i, r + 1, i == bestIndex));
+            if (candidateOtherSide[i])
+                otherSideShown = true;
+            shown++;
+        }
+
+        // The best one on the other side, if it is not in the list (how far behind it is).
+        if (!otherSideShown && sideBefore != 0)
+        {
+            int otherBest = -1;
+            int otherRank = 0;
+            for (int r = 0; r < count; r++)
+            {
+                int i = order[r];
+                if (candidateParts[i].rejected == null && candidateOtherSide[i])
+                {
+                    otherBest = i;
+                    otherRank = r + 1;
+                    break;
+                }
+            }
+
+            if (otherBest >= 0)
+                text.Append("\n  best on the OTHER side:\n").Append(CandidateLine(otherBest, otherRank, false));
+            else
+                text.Append("\n  other side: no valid point");
+        }
+
+        // The result.
+        if (bestIndex < 0)
+        {
+            text.Append("\n  -> NOTHING found, stays");
+        }
+        else
+        {
+            int chosenSide = candidateParts[bestIndex].side;
+            bool crossing = sideBefore != 0 && chosenSide != 0 && chosenSide != sideBefore;
+            text.Append("\n  -> ")
+                .Append(candidateIsCurrent[bestIndex] ? "KEEPS the current place" : "new place")
+                .Append(", side ").Append(SideName(chosenSide))
+                .Append(crossing ? ", CROSSES" : "");
+        }
+
+        Debug.Log(text.ToString());
+    }
+
+    // One candidate: total = parts + side bonus (+ keep bonus).
+    private string CandidateLine(int i, int rank, bool chosen)
+    {
+        CandidateParts p = candidateParts[i];
+        bool sideBonus = !candidateOtherSide[i];
+        float trip = Mathf.Clamp01(p.trip / 40f);
+
+        return "  " + (chosen ? "*" : " ") + rank + ". " + SideName(p.side) +
+               (candidateOtherSide[i] ? " OTHER side" : "") +
+               (candidateIsCurrent[i] ? " CURRENT" : "") +
+               " | total " + candidateFinal[i].ToString("F2") +
+               (sideBonus ? " (side +" + SideBonus.ToString("F1") + ")" : "") +
+               (candidateIsCurrent[i] ? " (keep +" + KeepBonus.ToString("F1") + ")" : "") +
+               " = hidden " + p.hidden.ToString("F2") + " [open " + Pct(p.visible) + (p.inView ? ", IN his view" : ", out of view") + "]" +
+               " + dist " + p.distanceScore.ToString("F2") + " [" + p.distance.ToString("F0") + " m, ideal " + p.ideal.ToString("F0") + "]" +
+               " + behind " + p.behind.ToString("F2") + " [" + p.angle.ToString("F0") + " deg]" +
+               " + watch " + p.watch.ToString("F2") +
+               " - trip " + trip.ToString("F2") + " [" + p.trip.ToString("F0") + " m]";
+    }
+
+    // [StalkTick] - every tickInterval s: where the bear is against the
+    // REAL player (not what the bear believes), its phase and speed.
+    private void LogTick()
+    {
+        if (!logTick)
+            return;
+
+        tickTimer -= Time.deltaTime;
+        if (tickTimer > 0f)
+            return;
+
+        float interval = Mathf.Max(tickInterval, 0.1f);
+        tickTimer = interval;
+
+        Transform real = Knowledge.Player;
+        Vector3 fromPlayer = Flat(transform.position - real.position);
+        float angle = route != Vector3.zero ? Vector3.Angle(route, fromPlayer) : -1f;
+        float open = VisibleFromPlayer(transform.position, real.position);
+        bool inView = Vector3.Angle(Flat(real.forward), fromPlayer) <= freezeViewAngle;
+
+        float bearSpeed = FlatDistance(transform.position, lastTickBear) / interval;
+        float playerSpeed = FlatDistance(real.position, lastTickPlayer) / interval;
+        lastTickBear = transform.position;
+        lastTickPlayer = real.position;
+
+        float unseen = Knowledge.TimeSinceSeen;
+        string sees = Knowledge.IsSeeingPlayer
+            ? "yes"
+            : "no (" + (float.IsInfinity(unseen) ? "never" : unseen.ToString("F1") + " s") + ")";
+
+        Debug.Log("[StalkTick] t=" + Time.time.ToString("F1") + " " + phase +
+                  (lagging ? " LAGGING" : "") + (Time.time < pursuitUntil ? " PURSUIT" : "") +
+                  " | " + fromPlayer.magnitude.ToString("F0") + " m from the player, " + SideName(SideOf(fromPlayer)) +
+                  " of his route (" + angle.ToString("F0") + " deg), own side " + SideName(side) +
+                  " | open to him " + Pct(open) + (inView ? ", IN his view" : "") +
+                  " | sees him " + sees +
+                  " | speed bear " + bearSpeed.ToString("F1") + " / player " + playerSpeed.ToString("F1") + " m/s" +
+                  " | to its place " + (hasTarget ? FlatDistance(transform.position, target).ToString("F0") + " m" : "none") +
+                  " | player (" + real.position.x.ToString("F0") + ", " + real.position.z.ToString("F0") + ")" +
+                  " bear (" + transform.position.x.ToString("F0") + ", " + transform.position.z.ToString("F0") + ")");
+    }
+
+    // [Rhythm] - pauses and arrivals: how open the bear stands to the REAL player.
+    private void LogRhythm(string what)
+    {
+        if (!logTick || Knowledge.Player == null)
+            return;
+
+        Transform real = Knowledge.Player;
+        Vector3 fromPlayer = Flat(transform.position - real.position);
+        bool inView = Vector3.Angle(Flat(real.forward), fromPlayer) <= freezeViewAngle;
+
+        Debug.Log("[Rhythm] " + what + " | open to the player " + Pct(VisibleFromPlayer(transform.position, real.position)) +
+                  (inView ? ", IN his view" : "") + " | " + fromPlayer.magnitude.ToString("F0") + " m from him");
     }
 
     // Selected bear in Play: green - hiding place, yellow - peek point,

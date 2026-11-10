@@ -1,35 +1,90 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 
 // ============================================================
 // Алгоритм трави для ScatterDetails. Кнопки — в Inspector (ScatterDetailsEditor).
 // Пише в сітку деталей terrain — те саме, що пензель Paint Details:
-// кожна клітинка (~1 м) зберігає, скільки трави в ній росте.
+// кожна клітинка (~1–2 м) зберігає, наскільки її заповнює кожен вид трави.
+//
+// Scatter садить ВЛАСНІ копії префабів (SC_<назва>, папка CopiesFolder), а не оригінали:
+//  - оригінали (трава пензля, стара трава) Scatter ніколи не змінює;
+//  - у копії фіксована стеля густоти (Detail Density = ScatterDetailPreset.MaxDensity),
+//    а густота зони — це частка заповнення клітинок лише в її контурі, тож зони не впливають одна на одну.
+// Копії — звичайні види трави в terrain: їх видно в Paint Details, пензлем їх можна стерти чи домалювати.
+//
 // Наявний Scatter (ScatterZone, ScatterGenerator) не змінюється — з нього лише читаються контур і об'єкти.
-// Усе через Undo: Ctrl+Z (Cmd+Z) скасовує. Після роботи — Ctrl+S, щоб зберегти terrain.
+// Усе в terrain — через Undo: Ctrl+Z (Cmd+Z) скасовує. Створення копій-префабів не скасовується (це файли).
+// Після роботи — Ctrl+S, щоб зберегти terrain.
 // ============================================================
 public static class ScatterDetailsGenerator
 {
     // Необов'язкові налаштування трави, яких може не бути в старих версіях Unity.
     // Читаються й пишуться за назвою, тож код компілюється в будь-якій версії.
-    static readonly string[] OptionalProps = { "alignToGround", "positionJitter", "density", "useDensityScaling", "useInstancing" };
+    static readonly string[] OptionalProps =
+        { "alignToGround", "positionJitter", "density", "useDensityScaling", "useInstancing", "holeEdgePadding", "noiseSeed", "targetCoverage" };
+
+    // ===== Копії для Scatter =====
+    public const string CopiesFolder = "Assets/Scripts/Scatter/Grass_Presset/Scatter_Copies";
+    public const string CopyPrefix = "SC_";
+    const string CopyMark = "ScatterCopyOf:";   // у userData копії — GUID оригіналу
+
+    // Позиції «купками» (квіти): усередині купки їх у стільки разів більше, а поза нею — немає.
+    // Купки займають приблизно третину площі, тож загальна кількість лишається приблизно та сама.
+    const float ClumpBoost = 3f;
+
+    // Одна рослина пресету на час засаджування
+    class Plant
+    {
+        public ScatterDetailItem item;
+        public GameObject copy;      // SC_ копія, яку садимо
+        public string note = "";     // що зроблено з копією (створено, з LOD0…)
+        public int proto;            // індекс копії в terrain
+        public float ceiling = 1f;   // Detail Density копії
+        public string info = "";     // налаштування копії для звіту
+        public int cells;            // скільки клітинок отримала
+        public long sum;             // сума значень — для середнього заповнення
+    }
 
     // ===== Засадити траву в зоні (замінює попередню траву цього пресета в зоні) =====
+    // Як пензель Paint Details: у кожній клітинці — усі рослини разом, у пропорції ваг.
+    // Режим Coverage: заповнення клітинки = Density пресету / стеля копії (Detail Density копії).
     public static void Generate(ScatterDetails details)
     {
         if (!Validate(details, out ScatterZone zone, out ScatterDetailPreset preset)) return;
 
-        List<ScatterDetailItem> items = ValidItems(preset);
-        if (items.Count == 0) { Debug.LogWarning("[Scatter] Трава: у пресеті немає придатних префабів з вагою > 0"); return; }
+        // ===== Рослини і їхні копії SC_ =====
+        var skipped = new List<string>();
+        var plants = new List<Plant>();
+        Dictionary<string, GameObject> copies = CopyIndex();
+        foreach (ScatterDetailItem item in preset.items)
+        {
+            string problem = ItemProblem(item);
+            if (problem != null) { skipped.Add(problem); continue; }
+
+            GameObject copy = GetOrCreateCopy(item.prefab, copies, out string note, out string error);
+            if (copy == null) { skipped.Add($"{item.prefab.name}: не вдалося зробити копію SC_ — {error}"); continue; }
+            plants.Add(new Plant { item = item, copy = copy, note = note });
+        }
+        if (plants.Count == 0)
+        {
+            details.lastReport = "Нічого не засаджено: у пресеті немає придатних позицій." + Lines(skipped);
+            Debug.LogWarning("[Scatter] Трава: у пресеті немає придатних позицій" + Lines(skipped));
+            return;
+        }
 
         Undo.SetCurrentGroupName("Scatter Grass Generate");
         Vector2[] poly = PolygonXZ(zone);
         Bounds area = zone.GetBoundsXZ();
-        float[] weights = new float[items.Count];
+        int n = plants.Count;
+        float[] share = new float[n];    // частка кожної рослини в поточній клітинці
+        float[] full = new float[n];     // скільки писати в клітинку, якби рослина була одна
         int terrains = 0, cells = 0, planted = 0, added = 0;
-        string mode = "";
+        bool coverage = true;
+        List<GameObject> presetPrefabs = AllPrefabs(preset, copies);
 
         foreach (Terrain t in Terrain.activeTerrains)
         {
@@ -37,15 +92,23 @@ public static class ScatterDetailsGenerator
             TerrainData d = t.terrainData;
             Undo.RegisterCompleteObjectUndo(d, "Scatter Grass Generate");
 
-            int[] proto = EnsurePrototypes(d, items, ref added);   // індекс трави в terrain для кожного пункту
-            bool coverage = IsCoverageMode(d);
-            int maxValue = coverage ? 255 : preset.maxPerCell;
-            mode = coverage ? "Coverage" : "Instance Count";
+            coverage = IsCoverageMode(d);
+            added += EnsurePrototypes(d, plants);
 
-            // Поточна трава цього пресета в прямокутнику зони
+            // Coverage — частка від стелі копії (густота лише в цій зоні);
+            // Instance Count — кількість травинок: густота × Max Per Cell.
+            for (int i = 0; i < n; i++)
+                full[i] = coverage
+                    ? 255f * Mathf.Min(1f, preset.density / Mathf.Max(0.0001f, plants[i].ceiling))
+                    : preset.density * preset.maxPerCell;
+
+            // Шари, які зона перезаписує: копії і оригінали префабів пресету
+            // (оригінали — щоб прибрати траву, яку посадила попередня версія Scatter)
             var layers = new Dictionary<int, int[,]>();
-            foreach (int p in proto)
-                if (!layers.ContainsKey(p)) layers[p] = d.GetDetailLayer(rect.x, rect.y, rect.width, rect.height, p);
+            foreach (int p in FindPrototypes(d, presetPrefabs))
+                layers[p] = d.GetDetailLayer(rect.x, rect.y, rect.width, rect.height, p);
+            foreach (Plant pl in plants)
+                if (!layers.ContainsKey(pl.proto)) layers[pl.proto] = d.GetDetailLayer(rect.x, rect.y, rect.width, rect.height, pl.proto);
 
             PathMap path = preset.avoidPathLayer ? PathMap.Read(d, preset.pathLayer, rect) : null;
             Vector3 origin = t.transform.position;
@@ -66,17 +129,35 @@ public static class ScatterDetailsGenerator
 
                 if (path != null && path.Weight(u, v) > preset.pathThreshold) continue;
 
+                // Частки рослин у клітинці: вага, нахил, купки
                 float slope = Vector3.Angle(d.GetInterpolatedNormal(u, v), Vector3.up);
-                int item = PickItem(items, slope, Hash01(details.seed, w, 1), weights);
-                if (item < 0) continue;
+                float total = 0f;
+                for (int i = 0; i < n; i++)
+                {
+                    ScatterDetailItem it = plants[i].item;
+                    float wgt = slope <= it.maxSlope ? it.weight : 0f;
+                    if (wgt > 0f && it.clumped) wgt *= ClumpBoost * Clump(preset, details.seed, i, w);
+                    share[i] = wgt;
+                    total += wgt;
+                }
+                if (total <= 0f) continue;
 
-                float amount = preset.density * Patch(preset, details.seed, w) * EdgeFade(poly, preset.edgeFade, w);
-                int value = Mathf.FloorToInt(amount * maxValue + Hash01(details.seed, w, 2)); // дробова частина — випадкове округлення
-                value = Mathf.Clamp(value, 0, maxValue);
-                if (value == 0) continue;
+                float amount = Patch(preset, details.seed, w) * EdgeFade(poly, preset.edgeFade, w);
+                bool any = false;
+                for (int i = 0; i < n; i++)
+                {
+                    if (share[i] <= 0f) continue;
+                    float exact = full[i] * amount * share[i] / total;
+                    int value = Mathf.FloorToInt(exact + Hash01(details.seed, w, 2 + i)); // дробова частина — випадкове округлення
+                    if (value <= 0) continue;
 
-                layers[proto[item]][z, x] = value;
-                planted++;
+                    int[,] layer = layers[plants[i].proto];
+                    layer[z, x] = Mathf.Min(255, layer[z, x] + value);  // той самий префаб двічі в пресеті — складаємо
+                    plants[i].cells++;
+                    plants[i].sum += value;
+                    any = true;
+                }
+                if (any) planted++;
             }
 
             foreach (var kv in layers) d.SetDetailLayer(rect.x, rect.y, kv.Key, kv.Value);
@@ -84,12 +165,39 @@ public static class ScatterDetailsGenerator
             terrains++;
         }
 
-        if (terrains == 0) { Debug.LogWarning("[Scatter] Трава: під зоною немає terrain з сіткою деталей"); return; }
-        Debug.Log($"[Scatter] Трава {zone.name}: засаджено {planted} з {cells} клітинок, terrain: {terrains}, режим {mode}" +
-                  (added > 0 ? $", нових типів трави в terrain: {added}" : ""));
+        if (terrains == 0)
+        {
+            details.lastReport = "Під зоною немає terrain із сіткою деталей.";
+            Debug.LogWarning("[Scatter] Трава: під зоною немає terrain з сіткою деталей");
+            return;
+        }
+
+        // ===== Звіт: в Inspector і в Console =====
+        var sb = new StringBuilder();
+        sb.Append($"Засаджено {planted} з {cells} клітинок · режим {(coverage ? "Coverage" : "Instance Count")} · Density {preset.density:0.##}");
+        if (added > 0) sb.Append($" · нових копій у terrain: {added}");
+        foreach (Plant pl in plants)
+        {
+            string fill = pl.cells == 0 ? "—"
+                : coverage ? $"заповнення ~{(float)pl.sum / pl.cells / 255f:0%}"
+                           : $"~{(float)pl.sum / pl.cells:0.#} шт. у клітинці";
+            sb.Append($"\n• {pl.item.prefab.name} → {pl.copy.name} (terrain #{pl.proto}): {pl.cells} клітинок, {fill} · {pl.info}{pl.note}");
+            if (coverage && preset.density > pl.ceiling + 0.001f)
+                sb.Append($"\n   ⚠ Density {preset.density:0.##} більша за стелю копії {pl.ceiling:0.##} — засаджено по стелі");
+        }
+        sb.Append(Lines(skipped));
+        details.lastReport = sb.ToString();
+        Debug.Log($"[Scatter] Трава {zone.name}: {details.lastReport}");
     }
 
-    // ===== Прибрати траву цього пресета в зоні (траву, намальовану пензлем іншими типами, не чіпає) =====
+    static string Lines(List<string> list)
+    {
+        var sb = new StringBuilder();
+        foreach (string s in list) sb.Append("\n⚠ ").Append(s);
+        return sb.ToString();
+    }
+
+    // ===== Прибрати траву цього пресета в зоні: копії SC_ і оригінали (траву інших видів не чіпає) =====
     public static void Clear(ScatterDetails details)
     {
         if (!Validate(details, out ScatterZone zone, out ScatterDetailPreset preset)) return;
@@ -97,13 +205,14 @@ public static class ScatterDetailsGenerator
         Undo.SetCurrentGroupName("Scatter Grass Clear");
         Vector2[] poly = PolygonXZ(zone);
         Bounds area = zone.GetBoundsXZ();
+        List<GameObject> prefabs = AllPrefabs(preset, CopyIndex());
         int cleared = 0;
 
         foreach (Terrain t in Terrain.activeTerrains)
         {
             if (!CellRect(t, area, out RectInt rect)) continue;
             TerrainData d = t.terrainData;
-            List<int> proto = FindPrototypes(d, preset.items);
+            List<int> proto = FindPrototypes(d, prefabs);
             if (proto.Count == 0) continue;
 
             Undo.RegisterCompleteObjectUndo(d, "Scatter Grass Clear");
@@ -128,6 +237,7 @@ public static class ScatterDetailsGenerator
             EditorUtility.SetDirty(d);
         }
 
+        details.lastReport = $"Прибрано {cleared} клітинок трави цього пресета в контурі.";
         Debug.Log($"[Scatter] Трава {zone.name}: прибрано {cleared} клітинок");
     }
 
@@ -203,87 +313,320 @@ public static class ScatterDetailsGenerator
         return true;
     }
 
-    // Придатні пункти: є префаб, вага > 0, меш на корені. Про вимкнений GPU Instancing — лише попередження.
-    static List<ScatterDetailItem> ValidItems(ScatterDetailPreset preset)
+    // ===== Чи придатна позиція пресету. null — так, інакше причина (показується в Inspector і звіті) =====
+    public static string ItemProblem(ScatterDetailItem item)
     {
-        var result = new List<ScatterDetailItem>();
+        if (item == null || item.prefab == null) return "порожній рядок (немає префаба) — пропускаю";
+        if (item.weight <= 0f) return $"{item.prefab.name}: вага 0 — пропускаю";
+        if (!FindMesh(item.prefab, out _, out _)) return $"{item.prefab.name}: у префабі немає меша з MeshRenderer — пропускаю";
+        return null;
+    }
+
+    // Меш на корені префаба — копія буде Prefab Variant; інакше копія збирається з меша LOD0 / першої частини
+    public static bool MeshOnRoot(GameObject prefab)
+    {
+        return prefab != null && prefab.TryGetComponent(out MeshFilter mf) && mf.sharedMesh != null
+               && prefab.GetComponent<MeshRenderer>() != null;
+    }
+
+    // ===== Меш, який садитиме terrain: корінь → LOD0 → перша частина з MeshRenderer =====
+    static bool FindMesh(GameObject prefab, out MeshFilter filter, out MeshRenderer renderer)
+    {
+        filter = null; renderer = null;
+        if (prefab == null) return false;
+        if (MeshOnRoot(prefab))
+        {
+            filter = prefab.GetComponent<MeshFilter>();
+            renderer = prefab.GetComponent<MeshRenderer>();
+            return true;
+        }
+
+        LODGroup lod = prefab.GetComponentInChildren<LODGroup>(true);
+        if (lod != null)
+        {
+            LOD[] lods = lod.GetLODs();
+            if (lods.Length > 0)
+                foreach (Renderer r in lods[0].renderers)
+                    if (r is MeshRenderer mr && r.TryGetComponent(out MeshFilter mf) && mf.sharedMesh != null)
+                    { filter = mf; renderer = mr; return true; }
+        }
+
+        foreach (MeshFilter mf in prefab.GetComponentsInChildren<MeshFilter>(true))
+            if (mf.sharedMesh != null && mf.TryGetComponent(out MeshRenderer mr))
+            { filter = mf; renderer = mr; return true; }
+        return false;
+    }
+
+    // ===== Чи всі матеріали меша вміють GPU Instancing. bad — назви тих, що ні =====
+    public static bool SupportsInstancing(GameObject prefab, out string bad)
+    {
+        var names = new List<string>();
+        if (FindMesh(prefab, out _, out MeshRenderer mr))
+            foreach (Material m in mr.sharedMaterials)
+                if (m != null && !m.enableInstancing && !names.Contains(m.name)) names.Add(m.name);
+        bad = string.Join(", ", names);
+        return names.Count == 0;
+    }
+
+    // ===== Наявні копії: GUID оригіналу → копія (за позначкою в userData) =====
+    static Dictionary<string, GameObject> CopyIndex()
+    {
+        var map = new Dictionary<string, GameObject>();
+        if (!AssetDatabase.IsValidFolder(CopiesFolder)) return map;
+        foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { CopiesFolder }))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            AssetImporter imp = AssetImporter.GetAtPath(path);
+            if (imp == null || imp.userData == null || !imp.userData.StartsWith(CopyMark)) continue;
+            string original = imp.userData.Substring(CopyMark.Length);
+            var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (go != null && !map.ContainsKey(original)) map[original] = go;
+        }
+        return map;
+    }
+
+    // ===== Знайти або створити копію SC_<назва> для префаба =====
+    // Меш на корені → Prefab Variant (той самий меш і матеріал, зміни оригіналу підхоплюються).
+    // Меш у дочірній частині (LOD, кілька частин) → простий префаб із меша LOD0 / першої частини;
+    // якщо частина зсунута чи повернута відносно кореня — меш «запікається» в окремий файл _mesh.asset.
+    static GameObject GetOrCreateCopy(GameObject original, Dictionary<string, GameObject> copies, out string note, out string error)
+    {
+        note = ""; error = "";
+        string origPath = AssetDatabase.GetAssetPath(original);
+        if (string.IsNullOrEmpty(origPath)) { error = "це не префаб із Project"; return null; }
+        if (origPath.StartsWith(CopiesFolder + "/")) return original;          // у пресет поклали саму копію
+        string guid = AssetDatabase.AssetPathToGUID(origPath);
+        if (copies.TryGetValue(guid, out GameObject existing)) return existing;
+
+        if (!FindMesh(original, out MeshFilter mf, out MeshRenderer mr)) { error = "немає меша"; return null; }
+        EnsureFolder(CopiesFolder);
+        string path = AssetDatabase.GenerateUniqueAssetPath($"{CopiesFolder}/{CopyPrefix}{SafeName(original.name)}.prefab");
+        GameObject saved;
+
+        if (MeshOnRoot(original))
+        {
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(original);
+            try { saved = PrefabUtility.SaveAsPrefabAsset(instance, path); }
+            finally { Object.DestroyImmediate(instance); }
+            note = $" · створено копію {Path.GetFileName(path)}";
+        }
+        else
+        {
+            Mesh mesh = mf.sharedMesh;
+            Matrix4x4 m = original.transform.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+            if (!IsIdentity(m))
+            {
+                mesh = BakeMesh(mf.sharedMesh, m, Path.ChangeExtension(path, null) + "_mesh.asset", out error);
+                if (mesh == null) return null;
+            }
+            var go = new GameObject(Path.GetFileNameWithoutExtension(path));
+            try
+            {
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                go.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
+                saved = PrefabUtility.SaveAsPrefabAsset(go, path);
+            }
+            finally { Object.DestroyImmediate(go); }
+            note = $" · створено копію {Path.GetFileName(path)} з меша «{mf.name}» (лише одна частина)";
+        }
+
+        if (saved == null) { error = "Unity не зберіг префаб"; return null; }
+        AssetImporter imp = AssetImporter.GetAtPath(path);
+        imp.userData = CopyMark + guid;
+        imp.SaveAndReimport();
+        saved = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+        copies[guid] = saved;
+        return saved;
+    }
+
+    static void EnsureFolder(string folder)
+    {
+        if (AssetDatabase.IsValidFolder(folder)) return;
+        string parent = Path.GetDirectoryName(folder).Replace('\\', '/');
+        EnsureFolder(parent);
+        AssetDatabase.CreateFolder(parent, Path.GetFileName(folder));
+    }
+
+    static string SafeName(string s)
+    {
+        foreach (char c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
+        return s.Trim();
+    }
+
+    static bool IsIdentity(Matrix4x4 m)
+    {
+        for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+            if (Mathf.Abs(m[r, c] - (r == c ? 1f : 0f)) > 0.0001f) return false;
+        return true;
+    }
+
+    // ===== Меш частини з урахуванням її зсуву, повороту й масштабу відносно кореня =====
+    static Mesh BakeMesh(Mesh source, Matrix4x4 m, string path, out string error)
+    {
+        error = "";
+        Mesh mesh = Object.Instantiate(source);
+        Vector3[] v = mesh.vertices;
+        if (v == null || v.Length == 0)
+        {
+            Object.DestroyImmediate(mesh);
+            error = "меш не читається — увімкни Read/Write у налаштуваннях моделі";
+            return null;
+        }
+        mesh.name = Path.GetFileNameWithoutExtension(path);
+
+        for (int i = 0; i < v.Length; i++) v[i] = m.MultiplyPoint3x4(v[i]);
+        mesh.vertices = v;
+
+        Matrix4x4 nm = m.inverse.transpose;
+        Vector3[] normals = mesh.normals;
+        if (normals.Length == v.Length)
+        {
+            for (int i = 0; i < normals.Length; i++) normals[i] = nm.MultiplyVector(normals[i]).normalized;
+            mesh.normals = normals;
+        }
+        Vector4[] tangents = mesh.tangents;
+        if (tangents.Length == v.Length)
+        {
+            for (int i = 0; i < tangents.Length; i++)
+            {
+                Vector3 t = m.MultiplyVector(new Vector3(tangents[i].x, tangents[i].y, tangents[i].z)).normalized;
+                tangents[i] = new Vector4(t.x, t.y, t.z, tangents[i].w);
+            }
+            mesh.tangents = tangents;
+        }
+        if (m.determinant < 0f)                                   // дзеркальний масштаб — розвернути трикутники
+            for (int s = 0; s < mesh.subMeshCount; s++)
+            {
+                int[] tris = mesh.GetTriangles(s);
+                for (int i = 0; i + 2 < tris.Length; i += 3) (tris[i + 1], tris[i + 2]) = (tris[i + 2], tris[i + 1]);
+                mesh.SetTriangles(tris, s);
+            }
+        mesh.RecalculateBounds();
+        AssetDatabase.CreateAsset(mesh, AssetDatabase.GenerateUniqueAssetPath(path));
+        return mesh;
+    }
+
+    // ===== Префаби пресету: оригінали + наявні копії (для очищення зони) =====
+    static List<GameObject> AllPrefabs(ScatterDetailPreset preset, Dictionary<string, GameObject> copies)
+    {
+        var list = new List<GameObject>();
         foreach (ScatterDetailItem item in preset.items)
         {
-            if (item == null || item.prefab == null || item.weight <= 0f) continue;
-
-            if (item.prefab.GetComponent<MeshFilter>() == null)
-            {
-                Debug.LogWarning($"[Scatter] Трава: у префаба {item.prefab.name} немає MeshFilter на корені — terrain бере меш лише з кореня, пропускаю");
-                continue;
-            }
-
-            MeshRenderer mr = item.prefab.GetComponent<MeshRenderer>();
-            if (mr != null)
-                foreach (Material m in mr.sharedMaterials)
-                    if (m != null && !m.enableInstancing)
-                        Debug.LogWarning($"[Scatter] Трава: у матеріалі {m.name} ({item.prefab.name}) вимкнено Enable GPU Instancing — увімкни, так terrain малює траву швидше");
-
-            result.Add(item);
+            if (item == null || item.prefab == null) continue;
+            if (!list.Contains(item.prefab)) list.Add(item.prefab);
+            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(item.prefab));
+            if (copies.TryGetValue(guid, out GameObject copy) && !list.Contains(copy)) list.Add(copy);
         }
-        return result;
+        return list;
     }
 
-    // ===== Типи трави в terrain (Detail Prototypes): знайти або додати =====
-    // Нова трава бере налаштування (Align to Ground, Position Jitter…) з уже наявної трави-меша цього terrain.
-    // Розмір від–до оновлюється з пресету — він діє на цю траву по всьому terrain.
-    static int[] EnsurePrototypes(TerrainData d, List<ScatterDetailItem> items, ref int added)
-    {
-        var list = new List<DetailPrototype>(d.detailPrototypes);
-        DetailPrototype template = list.Find(p => p.usePrototypeMesh && p.prototype != null);
-        var result = new int[items.Count];
-
-        for (int i = 0; i < items.Count; i++)
-        {
-            ScatterDetailItem item = items[i];
-            int index = list.FindIndex(p => p.usePrototypeMesh && p.prototype == item.prefab);
-
-            if (index < 0)
-            {
-                var proto = new DetailPrototype
-                {
-                    prototype = item.prefab,
-                    usePrototypeMesh = true,
-                    renderMode = DetailRenderMode.VertexLit,
-                    healthyColor = Color.white,
-                    dryColor = Color.white,
-                    noiseSpread = 0.1f
-                };
-                if (template != null) CopyOptional(template, proto);
-                SetOptional(proto, "useInstancing", true);
-                list.Add(proto);
-                index = list.Count - 1;
-                added++;
-
-                if (template == null)
-                    Debug.Log($"[Scatter] Трава: {item.prefab.name} додано в terrain. Перевір Terrain → Paint Details → Edit Details: Align to Ground, Position Jitter");
-            }
-
-            DetailPrototype target = list[index];
-            target.minWidth = target.minHeight = item.scaleRange.x;
-            target.maxWidth = target.maxHeight = item.scaleRange.y;
-            result[i] = index;
-        }
-
-        d.detailPrototypes = list.ToArray();
-        d.RefreshPrototypes();
-        return result;
-    }
-
-    // Індекси наявних типів трави з пресету (нічого не додає)
-    static List<int> FindPrototypes(TerrainData d, List<ScatterDetailItem> items)
+    // Індекси видів трави в terrain для цих префабів (нічого не додає)
+    static List<int> FindPrototypes(TerrainData d, List<GameObject> prefabs)
     {
         DetailPrototype[] protos = d.detailPrototypes;
         var result = new List<int>();
         for (int i = 0; i < protos.Length; i++)
-            foreach (ScatterDetailItem item in items)
-                if (item != null && item.prefab != null && protos[i].usePrototypeMesh && protos[i].prototype == item.prefab && !result.Contains(i))
-                    result.Add(i);
+            if (protos[i].usePrototypeMesh && protos[i].prototype != null && prefabs.Contains(protos[i].prototype))
+                result.Add(i);
         return result;
+    }
+
+    // ===== Копії SC_ у terrain: знайти або додати. Оригінали НЕ змінюються =====
+    // Нова копія бере всі налаштування оригіналу з terrain (розмір, кольори, Align to Ground, Position Jitter…),
+    // а Detail Density = стеля MaxDensity — один раз. Далі Scatter у копії міняє лише:
+    //  - розмір — з галочкою Size From Preset;
+    //  - GPU Instancing — лише якщо всі матеріали його вміють, інакше terrain таку траву не малює.
+    // Повертає, скільки копій додано.
+    static int EnsurePrototypes(TerrainData d, List<Plant> plants)
+    {
+        var list = new List<DetailPrototype>(d.detailPrototypes);
+        DetailPrototype anyMesh = list.Find(p => p.usePrototypeMesh && p.prototype != null);
+        int added = 0;
+
+        foreach (Plant pl in plants)
+        {
+            ScatterDetailItem item = pl.item;
+            int index = list.FindIndex(p => p.usePrototypeMesh && p.prototype == pl.copy);
+            if (index < 0)
+            {
+                DetailPrototype original = list.Find(p => p.usePrototypeMesh && p.prototype == item.prefab);
+                var proto = new DetailPrototype
+                {
+                    prototype = pl.copy,
+                    usePrototypeMesh = true,
+                    renderMode = DetailRenderMode.VertexLit,
+                    healthyColor = Color.white,
+                    dryColor = Color.white,
+                    noiseSpread = 0.1f,
+                    minWidth = item.scaleRange.x, minHeight = item.scaleRange.x,
+                    maxWidth = item.scaleRange.y, maxHeight = item.scaleRange.y
+                };
+                if (original != null)
+                {
+                    proto.renderMode = original.renderMode;
+                    proto.healthyColor = original.healthyColor;
+                    proto.dryColor = original.dryColor;
+                    proto.noiseSpread = original.noiseSpread;
+                    proto.minWidth = original.minWidth; proto.maxWidth = original.maxWidth;
+                    proto.minHeight = original.minHeight; proto.maxHeight = original.maxHeight;
+                    CopyOptional(original, proto);
+                    pl.note += " · налаштування — з оригіналу в terrain";
+                }
+                else
+                {
+                    if (anyMesh != null) CopyOptional(anyMesh, proto);
+                    pl.note += " · оригіналу в terrain немає — розмір з пресету";
+                }
+
+                // Стеля густоти — один раз. Якщо terrain її не прийме — 1
+                SetOptional(proto, "density", ScatterDetailPreset.MaxDensity);
+                if (!IsValid(proto, out string error))
+                {
+                    SetOptional(proto, "density", 1f);
+                    pl.note += $" · стелю {ScatterDetailPreset.MaxDensity} terrain не прийняв ({error}), стоїть 1";
+                }
+
+                list.Add(proto);
+                index = list.Count - 1;
+                added++;
+            }
+
+            DetailPrototype target = list[index];
+            if (item.sizeFromPreset)
+            {
+                target.minWidth = target.minHeight = item.scaleRange.x;
+                target.maxWidth = target.maxHeight = item.scaleRange.y;
+            }
+
+            // GPU Instancing: матеріал без нього → малюємо без інстансингу, інакше траву не видно
+            bool instancing = SupportsInstancing(pl.copy, out string badMaterials);
+            bool wasInstancing = GetOptional(target, "useInstancing", false);
+            SetOptional(target, "useInstancing", instancing);
+            if (!instancing && wasInstancing && target.renderMode != DetailRenderMode.Grass)
+                target.renderMode = DetailRenderMode.VertexLit;
+
+            pl.ceiling = GetOptional(target, "density", 1f);
+            pl.proto = index;
+            pl.info = $"стеля {pl.ceiling:0.##}, розмір {target.minWidth:0.##}–{target.maxWidth:0.##} ({(item.sizeFromPreset ? "з пресету" : "як у копії")})"
+                    + (instancing ? "" : $", без GPU Instancing (вимкнено в матеріалах: {badMaterials}) — краще увімкнути Enable GPU Instancing");
+        }
+
+        d.detailPrototypes = list.ToArray();
+        d.RefreshPrototypes();
+        return added;
+    }
+
+    // Чи прийме terrain цей вид трави (DetailPrototype.Validate; у старих версіях Unity його немає — тоді «так»)
+    static bool IsValid(DetailPrototype proto, out string error)
+    {
+        error = "";
+        MethodInfo m = typeof(DetailPrototype).GetMethod("Validate", new[] { typeof(string).MakeByRefType() });
+        if (m == null) return true;
+        object[] args = { null };
+        bool ok = (bool)m.Invoke(proto, args);
+        error = args[0] as string ?? "";
+        return ok;
     }
 
     static void CopyOptional(DetailPrototype from, DetailPrototype to)
@@ -378,27 +721,21 @@ public static class ScatterDetailsGenerator
         return Mathf.Lerp(1f, patch, preset.patchiness);
     }
 
-    // ===== Вибір трави за вагою серед тих, що ростуть на такому нахилі; -1 — жодна =====
-    static int PickItem(List<ScatterDetailItem> items, float slope, float random01, float[] weights)
+    static T GetOptional<T>(DetailPrototype proto, string name, T fallback)
     {
-        float total = 0f;
-        for (int i = 0; i < items.Count; i++)
-        {
-            weights[i] = slope <= items[i].maxSlope ? items[i].weight : 0f;
-            total += weights[i];
-        }
-        if (total <= 0f) return -1;
+        PropertyInfo p = typeof(DetailPrototype).GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+        return p != null && p.CanRead && p.PropertyType == typeof(T) ? (T)p.GetValue(proto) : fallback;
+    }
 
-        float pick = random01 * total;
-        for (int i = 0; i < items.Count; i++)
-        {
-            if (weights[i] <= 0f) continue;
-            if (pick < weights[i]) return i;
-            pick -= weights[i];
-        }
-        for (int i = items.Count - 1; i >= 0; i--)
-            if (weights[i] > 0f) return i;
-        return -1;
+    // ===== Купки для позицій Clumped: свій шум Перліна для кожної позиції → 0 поза купкою, 1 у купці =====
+    // Поріг 0.55–0.75 залишає купкам приблизно третину площі (див. ClumpBoost).
+    static float Clump(ScatterDetailPreset preset, int seed, int item, Vector3 w)
+    {
+        float size = Mathf.Max(1f, preset.clumpSize);
+        float ox = Hash01(seed, 31 + item, 37, 41) * 1000f;
+        float oz = Hash01(seed, 43, 47 + item, 53) * 1000f;
+        float n = Mathf.PerlinNoise((w.x + ox) / size, (w.z + oz) / size);
+        return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 0.75f, n));
     }
 
     // ===== Випадкове число 0..1 для клітинки: той самий seed і місце — те саме число =====

@@ -20,5 +20,8 @@ public class ScatterDetails : MonoBehaviour
     [Tooltip("«Прибрати траву під об'єктами»: яку частку розміру об'єкта очищати (0.7 — трохи менше за сам об'єкт)")]
     [Range(0.2f, 1.5f)] public float clearUnderObjectsScale = 0.7f;
 
+    // Звіт останнього «Засадити траву» — показується в Inspector, у сцену не зберігається
+    [System.NonSerialized] public string lastReport;
+
     public ScatterZone Zone => GetComponent<ScatterZone>();
 }

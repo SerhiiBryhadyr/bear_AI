@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
+  m_Name: 3Grass_szablon
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 5443344685879028270, guid: c2ea3540012e34bc69fec65c7f363705, type: 3}
+    weight: 10
+    sizeFromPreset: 0
+    scaleRange: {x: 0.96, y: 3.28}
+    maxSlope: 40
+    clumped: 0
+  density: 1
+  patchiness: 0.5
+  patchSize: 8
+  clumpSize: 4
+  edgeFade: 2
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3
+  maxPerCell: 8

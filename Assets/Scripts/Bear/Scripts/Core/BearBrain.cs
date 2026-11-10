@@ -9,6 +9,8 @@ using UnityEngine;
 //                           D-35; Stalk itself hands over to the
 //                           Encounter (Tracking) when spotted close)
 //   Knows   -> Unknown    : lostEntryState   (SearchLastKnown)
+//   let go (D-52)         : releasedEntryState (Patrol - it does not
+//                           search for the one it has let go)
 //   distant sound (Unknown): InvestigateSound
 //                           (later: reaction variants of D-12)
 //
@@ -28,6 +30,9 @@ public class BearBrain : MonoBehaviour
 
     [Tooltip("State the bear switches to when it loses the player.")]
     public BearState lostEntryState = BearState.SearchLastKnown;
+
+    [Tooltip("State after the bear LET the player go (D-52, BearKnowledge.Release): it does not search for him.")]
+    public BearState releasedEntryState = BearState.Patrol;
 
     [Header("Sound clues (mode Unknown)")]
     [Tooltip("While investigating, a new sound re-targets the search only if it is at least this far from the last clue (m).")]
@@ -93,7 +98,9 @@ public class BearBrain : MonoBehaviour
     // ---------------------------------------------------------------
     private void HandleModeChanged(KnowledgeMode oldMode, KnowledgeMode newMode)
     {
-        BearState next = newMode == KnowledgeMode.Knows ? knowsEntryState : lostEntryState;
+        BearState next = newMode == KnowledgeMode.Knows ? knowsEntryState
+                       : knowledge.IsIgnoringPlayer ? releasedEntryState
+                       : lostEntryState;
 
         Debug.Log("[Brain] mode " + newMode + " -> " + next);
         bearAI.StateMachine.ChangeState(next);

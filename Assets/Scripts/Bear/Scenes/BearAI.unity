@@ -281,6 +281,7 @@ MonoBehaviour:
   soundAreaMax: 8
   soundAreaRepickTime: 1.5
   loseContactTime: 3
+  releaseTime: {x: 10, y: 15}
   noticedLookAngle: 20
   noticedLookTime: 1
   noticedLookTimePerMeter: 0.03
@@ -300,6 +301,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   knowsEntryState: 6
   lostEntryState: 4
+  releasedEntryState: 1
   retargetMinDistance: 6
   retargetCooldown: 2
   logIgnoredClues: 0
@@ -322,6 +324,11 @@ MonoBehaviour:
   turnSpeed: 360
   calmSpeed: 5
   calmTime: 1.5
+  mercyAfter: {x: 4, y: 7}
+  mercyDistance: 5
+  mercyRunDistance: {x: 25, y: 35}
+  mercyRunTime: 6
+  attackHold: 2
 --- !u!114 &694889797
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -415,8 +422,8 @@ MonoBehaviour:
   playerRunSpeed: 6
   pursuitDistanceFactor: 0.6
   pursuitTime: 15
-  stubPatternToEncounter: 0
-  stubApproachSpeedBonus: 1.5
+  forcePattern: 1
+  patternCooldown: 10
   bodyHeight: 0.9
   bodyHalfLength: 0.9
   playerEyeHeight: 1.6
@@ -430,6 +437,93 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 8831834322413210329, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
   m_PrefabInstance: {fileID: 1863984813222322938}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &694889821
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a007075dfc5d441fcb0ffabf5434186f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  standSpeed: 0.3
+  runSpeed: 6
+  slowBackSpeed: 2.5
+  towardAngle: 60
+  facingAngle: 60
+  confirmTime: 0.3
+  velocitySmoothing: 0.15
+  lostAfter: 1
+  logChanges: 1
+--- !u!114 &694889822
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f82cd936d38244e83bc76137d2cacf14, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  level: 0
+--- !u!114 &694889823
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3625cadb5b785493daca8f51db33685c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  noLookBackTime: 3
+  viewAngle: 60
+  followDistance: {x: 12, y: 30}
+  approachSpeedBonus: 2.5
+  approachTimeout: 30
+  speedFactor: {x: 0.9, y: 1.05}
+  catchUpBonus: 1.5
+  lightSoundsAt: 5
+  closeInAt: 10
+  closeDistance: {x: 8, y: 12}
+  warningAt: 15
+  warningWindow: 5
+  angryWindow: 2.5
+  noticeAngle: 35
+  noticeTime: 0.3
+  closeNoticeRange: 32
+  faceOffRange: 32
+  unfreezeDelay: 0.7
+  reactionDelay: 0.8
+  approachAttackSpeed: 1
+  approachAttackTime: 0.5
+  backedAwayTime: 1
+  goodMercy: 0.95
+  mediumMercy: 0.5
+  goodWatchTime: {x: 4, y: 7}
+  threatTime: 4
+  mediumFollowTime: 4
+  mediumBluffAttack: 0.5
+  angryHesitation: {x: 3, y: 8}
+  releaseDistance: 25
+  hiddenTime: 2
+  listenTime: 4
+  loudStep: 10
+  coverSearch: {x: 8, y: 18}
+  coverRunSpeed: 6
+  leaveDistance: 30
+  leaveMaxTime: 8
+  loseContactTime: 15
+  turnSpeed: 180
+  repathInterval: 0.25
+  logCues: 1
 --- !u!1 &728657698
 GameObject:
   m_ObjectHideFlags: 0
@@ -993,6 +1087,15 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       insertIndex: -1
       addedObject: {fileID: 694889798}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889822}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889821}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889823}
   m_SourcePrefab: {fileID: 100100000, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

@@ -50,6 +50,11 @@ public enum ContactSource
 //    a guess and can be wrong.
 // 5. Estimate (D-44): without sight - where the player probably is
 //    now: a fresh sound, or the last seen point + last seen velocity.
+// 6. Letting him go (D-52): Release() - the bear ignores the player for
+//    releaseTime seconds (sight and sounds give no contact), the mode
+//    becomes Unknown at once and BearBrain sends the bear on patrol,
+//    not to search. MarkNoticed() - a state that is SURE it was seen
+//    (close behind on a path) sets the opinion directly.
 //
 // Mode changes are announced by the ModeChanged event (BearBrain
 // listens). Runs after BearAI / BearStateMachine and before the states,
@@ -73,6 +78,10 @@ public class BearKnowledge : MonoBehaviour
     [Header("Losing the player (D-20)")]
     [Tooltip("Knows -> Unknown after this many seconds without seeing AND without hearing the player. A state may ask for longer (stalking, D-44).")]
     public float loseContactTime = 3f;
+
+    [Header("Letting the player go (D-52)")]
+    [Tooltip("After Release() the bear ignores the player this long (s, random between x and y): sight and sounds give no contact, it patrols.")]
+    public Vector2 releaseTime = new Vector2(60f, 90f);
 
     [Header("Opinion 'the player has noticed me' (D-16, D-42, D-43)")]
     [Tooltip("The player's look must point at the bear within this angle (deg). A glance with the corner of the eye does not count.")]
@@ -116,6 +125,14 @@ public class BearKnowledge : MonoBehaviour
     public float TimeSinceContact =>
         HasLastKnownPosition ? Time.time - lastContactTime : float.PositiveInfinity;
 
+    // D-52: the bear let the player go and ignores him for a while.
+    public bool IsIgnoringPlayer => Time.time < ignoreUntil;
+
+    // The last player sound the bear heard. Loudness = hearing radius
+    // in m (walk 10, run 20, back 7, slow back 4, crouch 2.5).
+    public float LastHeardLoudness { get; private set; }
+    public float TimeSinceHeard => Time.time - lastHeardTime;
+
     // Lose time now: the normal one or the one a state asked for.
     public float CurrentLoseContactTime => loseContactOverride > 0f ? loseContactOverride : loseContactTime;
 
@@ -139,6 +156,8 @@ public class BearKnowledge : MonoBehaviour
     private float lastNoticedTime;
     private float lookTimer;
     private float loseContactOverride;
+    private float ignoreUntil = -999f;
+    private float lastHeardTime = -999f;
 
     private void Awake()
     {
@@ -154,7 +173,7 @@ public class BearKnowledge : MonoBehaviour
     // ---------------------------------------------------------------
     private void Update()
     {
-        IsSeeingPlayer = vision != null && vision.CanSeePlayer();
+        IsSeeingPlayer = !IsIgnoringPlayer && vision != null && vision.CanSeePlayer();
 
         if (IsSeeingPlayer)
         {
@@ -186,6 +205,12 @@ public class BearKnowledge : MonoBehaviour
     // ---------------------------------------------------------------
     public void ReceiveSound(SoundEvent soundEvent, float distance)
     {
+        if (IsIgnoringPlayer)
+            return;                                         // let go (D-52): does not listen for him
+
+        LastHeardLoudness = soundEvent.Loudness;
+        lastHeardTime = Time.time;
+
         // Sees the player -> the exact position already comes from the eyes.
         if (IsSeeingPlayer)
             return;
@@ -223,6 +248,44 @@ public class BearKnowledge : MonoBehaviour
     public void ResetLoseContactTime()
     {
         loseContactOverride = 0f;
+    }
+
+    // ---------------------------------------------------------------
+    // D-52: the bear lets the player go. For releaseTime seconds sight
+    // and sounds give no contact; the mode becomes Unknown at once and
+    // BearBrain sends the bear on patrol (not to search - why look for
+    // the one it has just let go). Later the director (D-22) brings it
+    // back onto the player's way.
+    // ---------------------------------------------------------------
+    public void Release(string reason)
+    {
+        float seconds = UnityEngine.Random.Range(releaseTime.x, releaseTime.y);
+        ignoreUntil = Time.time + seconds;
+        IsSeeingPlayer = false;
+        lookTimer = 0f;
+        BelievesNoticed = false;
+
+        string text = "released: " + reason + " - ignores the player " + seconds.ToString("F0") + " s";
+
+        if (Mode == KnowledgeMode.Knows)
+            SetMode(KnowledgeMode.Unknown, text);
+        else
+            Debug.Log("[Knowledge] " + text);
+    }
+
+    // D-52: close behind on a path the bear is SURE the player saw it
+    // (a look back is enough). The state decides; the opinion is set
+    // here, so the other states know it too (it fades as usual, D-43).
+    public void MarkNoticed(string reason)
+    {
+        lastNoticedTime = Time.time;
+
+        if (BelievesNoticed)
+            return;
+
+        BelievesNoticed = true;
+        NoticedCount++;
+        Debug.Log("[Knowledge] bear believes it is NOTICED: " + reason);
     }
 
     // ---------------------------------------------------------------

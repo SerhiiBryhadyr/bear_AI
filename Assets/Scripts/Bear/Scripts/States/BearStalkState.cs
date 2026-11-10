@@ -57,11 +57,14 @@ using UnityEngine.AI;
 //    stands and reads the player: he runs -> "he saw me" -> follows
 //    faster and closer, still hidden; he walks on -> "he did not see
 //    me". BearKnowledge forgets being spotted after ~10 s (D-43).
-// 7. STUB until the patterns exist (open question 2.11): a pattern is
-//    chosen (BearPlayerAnalysis) and the bear does not believe it is
-//    spotted -> it walks openly to the player -> Encounter. Every choice
-//    is used once; an unused one is still valid when the bear finds the
-//    player again (D-38). Switch off: stubPatternToEncounter.
+// 7. Pattern (D-03, D-52): BearPlayerAnalysis has made a fresh choice,
+//    the bear does not believe it is spotted and saw the player a
+//    moment ago -> hands over to the pattern's state (now only
+//    RearPursuit). forcePattern says WHICH pattern, not WHEN: the bear
+//    first stalks until the analysis chooses. Every choice is used
+//    once; an unused one is still valid when the bear finds the player
+//    again (D-38). A new pattern not sooner than patternCooldown after
+//    the last one ended.
 // 8. DEBUG LOGS - TEMPORARY (8.11, tuning the side rule): [Candidates]
 //    on every choice, [StalkTick] every second, [Rhythm] on pauses and
 //    arrivals. Behaviour does not depend on them. Remove when the
@@ -152,11 +155,15 @@ public class BearStalkState : BearStateBehaviour
     public float pursuitDistanceFactor = 0.6f;
     public float pursuitTime = 15f;
 
-    [Header("Stub until the patterns exist (open question 2.11)")]
-    [Tooltip("A pattern is chosen and the bear does not believe it is spotted -> walks openly to the player -> Encounter at encounterDistance. Off = stalking only.")]
-    public bool stubPatternToEncounter = true;
-    [Tooltip("Walking openly to the player: his speed + this (m/s).")]
-    public float stubApproachSpeedBonus = 1.5f;
+    public enum PatternPick { Auto, RearPursuit }
+
+    [Header("Patterns (D-03, D-52)")]
+    [Tooltip("Which pattern starts once the analysis has chosen. RearPursuit = always pattern 1 (the only one made). Auto = the analysis choice; a pattern not made yet -> keeps stalking. Changes WHICH, not WHEN.")]
+    public PatternPick forcePattern = PatternPick.RearPursuit;
+    [Tooltip("A new pattern not sooner than this after the previous one ended (s).")]
+    public float patternCooldown = 60f;
+    [Tooltip("The player looked the bear's way (FREEZE) -> no pattern starts for this long (s): he may have seen it (10.11).")]
+    public float patternAfterLook = 5f;
 
     [Header("Checks")]
     [Tooltip("Height of the bear's body above a point when checking whether the player could see it (m).")]
@@ -176,7 +183,7 @@ public class BearStalkState : BearStateBehaviour
     public bool logTick = true;
     public float tickInterval = 1f;
 
-    private enum Phase { Walk, Pause, Freeze, Read, Peek, Approach }
+    private enum Phase { Walk, Pause, Freeze, Read, Peek }
 
     // Out of the player's view an open place is still risky: he may turn
     // (canon D-35: a bear right behind is caught by the first look back).
@@ -189,11 +196,12 @@ public class BearStalkState : BearStateBehaviour
     private const float GoodExposureLimit = 0.6f;
     // Farther from the player than its own place + this (m) = behind its plan: no pauses.
     private const float BehindPlanMargin = 10f;
-    // The stub starts only if the bear saw the player not longer ago than this (s).
-    private const float StubFreshSight = 3f;
+    // A pattern starts only if the bear saw the player not longer ago than this (s).
+    private const float PatternFreshSight = 3f;
 
     private BearVision vision;
     private BearPlayerAnalysis analysis;
+    private BearRearPursuitState rearPursuit;
     private CharacterController playerBody;
 
     private Phase phase;
@@ -249,8 +257,8 @@ public class BearStalkState : BearStateBehaviour
     private int knownNoticedCount;
     private float pursuitUntil = -999f;
 
-    private float usedChoiceTime = -999f;   // the analysis choice the stub already used (kept between stalkings)
-    private float approachTimer;
+    private float usedChoiceTime = -999f;   // the analysis choice already used (kept between stalkings)
+    private float lastWatchedTime = -999f;  // the last moment the player looked the bear's way
 
     // ---------------------------------------------------------------
     // Setup / cleanup.
@@ -260,6 +268,7 @@ public class BearStalkState : BearStateBehaviour
         base.Awake();
         vision = GetComponent<BearVision>();
         analysis = GetComponent<BearPlayerAnalysis>();
+        rearPursuit = GetComponent<BearRearPursuitState>();
     }
 
     private void OnEnable()
@@ -298,8 +307,8 @@ public class BearStalkState : BearStateBehaviour
     }
 
     // ---------------------------------------------------------------
-    // Main loop. Order matters: stub approach -> spotted -> reading ->
-    // freeze -> stub start -> peek -> hiding place.
+    // Main loop. Order matters: spotted -> reading -> freeze ->
+    // pattern start -> peek -> hiding place.
     // ---------------------------------------------------------------
     private void Update()
     {
@@ -319,12 +328,6 @@ public class BearStalkState : BearStateBehaviour
 
         LogTick();                                          // debug, temporary
 
-        if (phase == Phase.Approach)
-        {
-            UpdateApproach(player, distance);
-            return;
-        }
-
         if (CheckSpotted(distance))
             return;
 
@@ -337,7 +340,7 @@ public class BearStalkState : BearStateBehaviour
         if (UpdateFreeze())
             return;
 
-        if (TryStartStub(distance))
+        if (TryStartPattern())
             return;
 
         // No sight and no sound for a while -> peek (D-44, 8.11). Hears him
@@ -451,6 +454,8 @@ public class BearStalkState : BearStateBehaviour
 
         if (watched)
         {
+            lastWatchedTime = Time.time;
+
             if (phase != Phase.Freeze)
             {
                 phase = Phase.Freeze;
@@ -488,14 +493,14 @@ public class BearStalkState : BearStateBehaviour
     }
 
     // ---------------------------------------------------------------
-    // STUB (open question 2.11) - until the patterns exist.
-    // A fresh, unused choice of BearPlayerAnalysis + the bear does not
-    // believe it is spotted (D-43) + it saw the player a moment ago ->
-    // walks openly to him; at encounterDistance -> Encounter (Tracking).
+    // Pattern start (D-03, D-52). A fresh, unused choice of
+    // BearPlayerAnalysis + the bear does not believe it is spotted
+    // (D-43) + it saw the player a moment ago + the last pattern ended
+    // at least patternCooldown ago -> the pattern's state.
     // ---------------------------------------------------------------
-    private bool TryStartStub(float distance)
+    private bool TryStartPattern()
     {
-        if (!stubPatternToEncounter || analysis == null || !analysis.HasChoice)
+        if (analysis == null || !analysis.HasChoice)
             return false;
 
         if (analysis.TimeSinceChoice > analysis.memoryTime)
@@ -505,36 +510,32 @@ public class BearStalkState : BearStateBehaviour
         if (choiceTime <= usedChoiceTime + 0.01f)
             return false;                                   // this choice was already used
 
-        if (Knowledge.BelievesNoticed || Knowledge.TimeSinceSeen > StubFreshSight)
+        if (Knowledge.BelievesNoticed || Knowledge.TimeSinceSeen > PatternFreshSight)
             return false;
 
+        if (rearPursuit != null && rearPursuit.TimeSinceEnded < patternCooldown)
+            return false;                                   // pause between patterns
+
+        if (Time.time - lastWatchedTime < patternAfterLook)
+            return false;                                   // he has just looked its way
+
         usedChoiceTime = choiceTime;
-        phase = Phase.Approach;
-        approachTimer = 0f;
-        destinationSet = false;
 
-        Debug.Log("[Stalk] STUB: pattern " + BearPatternChooser.Name(analysis.LastChoice) + " chosen - walks openly to the player (" +
-                  distance.ToString("F0") + " m), Encounter at " + encounterDistance.ToString("F0") + " m (patterns are not made yet)");
+        BearPattern chosen = analysis.LastChoice;
+        BearPattern pattern = forcePattern == PatternPick.RearPursuit ? BearPattern.RearPursuit : chosen;
+
+        if (pattern != BearPattern.RearPursuit || rearPursuit == null)
+        {
+            Debug.Log("[Stalk] pattern " + BearPatternChooser.Name(pattern) + " chosen - not made yet" +
+                      (rearPursuit == null ? " (BearRearPursuitState is missing on the bear)" : "") + ", keeps stalking");
+            return false;
+        }
+
+        Debug.Log("[Stalk] pattern " + BearPatternChooser.Name(pattern) +
+                  (forcePattern == PatternPick.Auto ? " (analysis)" : " (forced; the analysis chose " + BearPatternChooser.Name(chosen) + ")") +
+                  " - starts it, " + FlatDistance(transform.position, Knowledge.LastKnownPosition).ToString("F0") + " m from the player");
+        ChangeState(BearState.RearPursuit);
         return true;
-    }
-
-    private void UpdateApproach(Vector3 player, float distance)
-    {
-        if (distance <= encounterDistance)
-        {
-            Debug.Log("[Stalk] STUB: " + distance.ToString("F0") + " m from the player - ENCOUNTER");
-            ChangeState(BearState.Tracking);
-            return;
-        }
-
-        Movement.SetSpeed(Mathf.Clamp(PlayerSpeed() + stubApproachSpeedBonus, minSpeed, maxSpeed));
-
-        approachTimer -= Time.deltaTime;
-        if (approachTimer <= 0f)
-        {
-            Movement.MoveTo(player);
-            approachTimer = 0.5f;
-        }
     }
 
     // ---------------------------------------------------------------
@@ -1454,14 +1455,13 @@ public class BearStalkState : BearStateBehaviour
                   (inView ? ", IN his view" : "") + " | " + fromPlayer.magnitude.ToString("F0") + " m from him");
     }
 
-    // Selected bear in Play: green - hiding place, yellow - peek point,
-    // red - walking openly to the player (stub).
+    // Selected bear in Play: green - hiding place, yellow - peek point.
     private void OnDrawGizmosSelected()
     {
         if (!Application.isPlaying || !enabled)
             return;
 
-        if (hasTarget && phase != Phase.Approach)
+        if (hasTarget)
         {
             Gizmos.color = Color.green;
             Gizmos.DrawWireSphere(target, 0.8f);
@@ -1473,12 +1473,6 @@ public class BearStalkState : BearStateBehaviour
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(peekPoint, 0.8f);
             Gizmos.DrawLine(transform.position, peekPoint);
-        }
-
-        if (phase == Phase.Approach && Knowledge != null && Knowledge.HasLastKnownPosition)
-        {
-            Gizmos.color = Color.red;
-            Gizmos.DrawLine(transform.position, Knowledge.LastKnownPosition);
         }
     }
 }

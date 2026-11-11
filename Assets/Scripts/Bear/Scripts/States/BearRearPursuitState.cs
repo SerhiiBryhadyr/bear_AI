@@ -28,8 +28,9 @@ using UnityEngine.AI;
 //      middle. Medium / Angry closer than assumeSeenDistance -> assume
 //      the worst: FACE-OFF. Otherwise it watches suspicionTime whether
 //      he changes his behaviour (runs, stops, faces it, backs away,
-//      turns his course, jerks the camera) -> FACE-OFF; walks on as
-//      before -> "he did not see me", the pattern goes on.
+//      turns his course, snaps the camera TOWARD it) -> FACE-OFF; walks
+//      on as before -> "he did not see me", the pattern goes on.
+//      Already in the middle of his screen -> a sure look, not uncertain.
 //    A shorter look -> the bear only freezes (canon 1.5). Farther than
 //    closeNoticeRange - the normal opinion of BearKnowledge (D-16, D-42).
 // 4. FACE-OFF: the bear stops, watches reactionDelay seconds, then
@@ -47,13 +48,23 @@ using UnityEngine.AI;
 //                                       15 s, else attack
 //    turns away after  stalks again     chase, mercy 50%     attack
 //    backing (a look away shorter than turnAwayGrace - to see where he
-//    goes - does not count)
-//    hides             lets him go      listens: hears a     attack
-//                                       walk / run -> chase
+//    goes - does not count; counted from the turn, also while he is out
+//    of sight - 11.11)
+//    hides             lets him go      LOST (4a)            attack
 //    Good / Medium let him go when he is backOffGain farther than where
 //    the face-off began (not closer than releaseDistance).
 //    (*) hunt - BearHuntState, step 4. Until it exists: Medium - 50%
 //        attack / 50% lets him go, Angry - attack.
+// 4a. LOST behind cover (Medium, 11.11): from the moment he is out of
+//    sight the bear listens harder (hearingBoost, BearHearing); a walk /
+//    run heard -> chase. Hidden hiddenTime -> SEARCH (BearAreaSearch):
+//    the place where it saw him last, then X, Y, Z, looking around at
+//    each; a quiet step -> the next point is there. Not found -> it
+//    REMEMBERS him memoryTime seconds, wandering (patrol points) with
+//    normal ears. Search or memory: sees him walk / run away or hears a
+//    walk / run -> chase; sees him stand / back away / come -> FACE-OFF
+//    again with only refindEscapeTime to hide; found findsToAttack
+//    times -> attack. Memory over -> forgets him (no long ignoring).
 // 5. END: chase or attack (BearChaseState), lets him go
 //    (BearKnowledge.Release -> patrol), back to stalking, or the player
 //    is lost (D-20). TimeSinceEnded - the pause between patterns.
@@ -71,7 +82,7 @@ public class BearRearPursuitState : BearStateBehaviour
     [Tooltip("The player's body points within this angle (deg) of the bear = the bear is in his view -> it freezes.")]
     public float viewAngle = 60f;
     [Tooltip("Distance behind the player (m): a random one in this range.")]
-    public Vector2 followDistance = new Vector2(8f, 15f);
+    public Vector2 followDistance = new Vector2(12f, 30f);
     [Tooltip("Approach speed = the player's speed + this (m/s).")]
     public float approachSpeedBonus = 2.5f;
     [Tooltip("Could not get behind him in this time (s) -> back to stalking.")]
@@ -86,7 +97,7 @@ public class BearRearPursuitState : BearStateBehaviour
     public float lightSoundsAt = 5f;
     [Tooltip("Closes in to closeDistance from this second.")]
     public float closeInAt = 10f;
-    public Vector2 closeDistance = new Vector2(6f, 8f);
+    public Vector2 closeDistance = new Vector2(8f, 12f);
     [Tooltip("Warning at this second: Good / Medium - loud sound, Angry - none.")]
     public float warningAt = 15f;
     [Tooltip("Good / Medium: after the warning the player has this long (s) to turn.")]
@@ -111,12 +122,12 @@ public class BearRearPursuitState : BearStateBehaviour
     public float suspicionTime = 4f;
     [Tooltip("Behaviour change: his course turned more than this (deg)...")]
     public float courseChangeAngle = 45f;
-    [Tooltip("...or he jerked the camera faster than this (deg/s).")]
-    public float jerkTurnRate = 150f;
+    [Tooltip("...or he snapped the camera TOWARD the bear faster than this (deg/s; turning away does not count).")]
+    public float jerkTurnRate = 250f;
     [Tooltip("The close rule works up to this distance (m); farther - the normal opinion of BearKnowledge.")]
-    public float closeNoticeRange = 18f;
+    public float closeNoticeRange = 32f;
     [Tooltip("Noticed farther than this (m) during the approach -> back to stalking (D-42), not a face-off.")]
-    public float faceOffRange = 20f;
+    public float faceOffRange = 32f;
     [Tooltip("The freeze lasts this long after he looks away (s).")]
     public float unfreezeDelay = 0.7f;
 
@@ -151,14 +162,26 @@ public class BearRearPursuitState : BearStateBehaviour
     public float mediumEscapeTime = 15f;
     [Tooltip("Hidden from the bear this long (s) -> Good lets him go, Medium listens first.")]
     public float hiddenTime = 2f;
-    [Tooltip("Medium: listens this long (s) after he hid; hears a loud step -> chase.")]
-    public float listenTime = 4f;
     [Tooltip("A step at least this loud (hearing radius, m) counts: walk 10, run 20 (back 7, slow back 4, crouch 2.5).")]
     public float loudStep = 10f;
 
+    [Header("Lost behind cover (Medium, 11.11)")]
+    [Tooltip("Out of sight -> listens harder: hearing radius x this (run 50, walk 25, back 17, slow back 10, crouch 6 m) until the search ends.")]
+    public float hearingBoost = 2.5f;
+    [Tooltip("The search did not find him -> remembers him this long (s): a walk / run heard, or seeing him, still means him.")]
+    public float memoryTime = 30f;
+    [Tooltip("Wanders at this speed (x normal) while it remembers him.")]
+    public float memoryWalkSpeed = 0.7f;
+    [Tooltip("Found him again and he stands / backs away: he must hide within this time (s) - shorter than the first time.")]
+    public float refindEscapeTime = 8f;
+    [Tooltip("Found him again this many times -> attack, he keeps hanging around (2 = the third meeting).")]
+    public int findsToAttack = 2;
+    [Tooltip("Forgets him: ignores him only this long (s) - just so BearBrain sends it on patrol, not to search again.")]
+    public float forgetIgnoreTime = 2f;
+
     [Header("Leaving")]
     [Tooltip("Good, no reaction to the warning: runs to the nearest cover this far (m)...")]
-    public Vector2 coverSearch = new Vector2(8f, 18f);
+    public Vector2 coverSearch = new Vector2(8f, 25f);
     public float coverRunSpeed = 6f;
     [Tooltip("Leaving calmly: walks this far from the player (m), then lets him go.")]
     public float leaveDistance = 30f;
@@ -167,7 +190,7 @@ public class BearRearPursuitState : BearStateBehaviour
 
     [Header("Contact")]
     [Tooltip("During the pattern the player is lost after this long without sight and sound (s).")]
-    public float loseContactTime = 10f;
+    public float loseContactTime = 15f;
 
     [Header("Movement")]
     public float turnSpeed = 180f;
@@ -177,7 +200,7 @@ public class BearRearPursuitState : BearStateBehaviour
     [Tooltip("Light sounds and threats every few seconds (logs instead of sounds / animations).")]
     public bool logCues = true;
 
-    private enum Phase { Approach, Pursuit, FaceOff, Leave, Retreat }
+    private enum Phase { Approach, Pursuit, FaceOff, Leave, Retreat, Search, Lost }
     private enum Answer { None, Watch, Threat, Follow, Hesitate }
 
     // --- Read by BearStalkState (pause between patterns) ---
@@ -188,6 +211,9 @@ public class BearRearPursuitState : BearStateBehaviour
     private BearMood mood;
     private BearChaseState chase;
     private PlayerSightOfBear playerSight;
+    private BearHearing hearing;
+    private BearAreaSearch search;
+    private BearPatrolSystem patrol;
 
     private Phase phase;
     private float phaseStart;
@@ -199,6 +225,9 @@ public class BearRearPursuitState : BearStateBehaviour
     private float screenTimer;
     private bool suspicious;
     private float suspicionEnd;
+    private float sampleAngle = -1f;    // snap toward the bear: angle at the start of a 0.1 s window
+    private float sampleTime;
+    private float towardRate;
     private PlayerAction actionBeforeLook;
     private Vector3 routeBeforeLook;
     private bool frozen;
@@ -218,7 +247,10 @@ public class BearRearPursuitState : BearStateBehaviour
     private float answerEnd;
     private bool hadRetreat;
     private float hiddenTimer;
-    private float listenUntil;
+    private float turnedAwayAt = -1f;   // he turned his back after backing away (-1 = he did not)
+    private bool hearingBoosted;
+    private int finds;                  // Medium: found him again after losing him
+    private float memoryEnd;
     private float releaseAt;            // Good: lets him go at this distance
     private float escapeDeadline;       // Medium: must be hidden by then
 
@@ -238,6 +270,9 @@ public class BearRearPursuitState : BearStateBehaviour
         reaction = GetComponent<BearPlayerReaction>();
         mood = GetComponent<BearMood>();
         chase = GetComponent<BearChaseState>();
+        hearing = GetComponent<BearHearing>();
+        search = GetComponent<BearAreaSearch>();
+        patrol = GetComponent<BearPatrolSystem>();
 
         if (reaction == null)
             Debug.LogError("BearRearPursuitState: BearPlayerReaction is missing on the bear.");
@@ -245,6 +280,8 @@ public class BearRearPursuitState : BearStateBehaviour
             Debug.LogWarning("BearRearPursuitState: BearMood is missing on the bear - the mood is Good.");
         if (chase == null)
             Debug.LogError("BearRearPursuitState: BearChaseState is missing on the bear - attacks and chases will not work.");
+        if (search == null)
+            Debug.LogError("BearRearPursuitState: BearAreaSearch is missing on the bear - Medium cannot search for him (add the component).");
     }
 
     private void OnEnable()
@@ -264,7 +301,8 @@ public class BearRearPursuitState : BearStateBehaviour
         answer = Answer.None;
         hadRetreat = false;
         hiddenTimer = 0f;
-        listenUntil = 0f;
+        turnedAwayAt = -1f;
+        finds = 0;
         repathTimer = 0f;
 
         wantDistance = Random.Range(followDistance.x, followDistance.y);
@@ -288,6 +326,9 @@ public class BearRearPursuitState : BearStateBehaviour
             Knowledge.ResetLoseContactTime();
         if (Movement != null)
             Movement.SetSpeedMultiplier(1f);
+        if (search != null)
+            search.Stop();
+        SetHearingBoost(false);
     }
 
     // ---------------------------------------------------------------
@@ -301,7 +342,9 @@ public class BearRearPursuitState : BearStateBehaviour
         Vector3 player = Knowledge.EstimatePlayerPosition(3f);
         float distance = FlatDistance(player, transform.position);
 
-        if (vision != null)
+        // Searching, the bear does not know where he is: the head goes with the body.
+        bool searching = phase == Phase.Search || phase == Phase.Lost;
+        if (vision != null && !searching)
             vision.SetLookTarget(player + Vector3.up * 1.2f);
 
         switch (phase)
@@ -309,6 +352,8 @@ public class BearRearPursuitState : BearStateBehaviour
             case Phase.Approach: UpdateApproach(player, distance); break;
             case Phase.Pursuit: UpdatePursuit(player, distance); break;
             case Phase.FaceOff: UpdateFaceOff(player, distance); break;
+            case Phase.Search: UpdateSearch(); break;
+            case Phase.Lost: UpdateLost(); break;
             default: UpdateLeaving(distance); break;
         }
     }
@@ -519,7 +564,10 @@ public class BearRearPursuitState : BearStateBehaviour
             if (suspicious)
                 return CheckBehaviourChange(distance);
 
-            if (screenTimer >= lookTime)
+            // Already in the middle of his screen -> a straight look: the
+            // center timer decides (fix 11.11: turning toward the bear passes
+            // the screen edge first, so this timer always came first).
+            if (screenTimer >= lookTime && angle > sureLookAngle)
             {
                 if (Mood != BearMoodLevel.Good && distance <= assumeSeenDistance)
                 {
@@ -530,6 +578,8 @@ public class BearRearPursuitState : BearStateBehaviour
 
                 suspicious = true;
                 suspicionEnd = Time.time + suspicionTime;
+                sampleAngle = -1f;
+                towardRate = 0f;
                 Log("UNCERTAIN: it was on his screen (" + angle.ToString("F0") + " deg, " + distance.ToString("F0") +
                     " m) - did he see it? Watches his behaviour " + suspicionTime + " s");
             }
@@ -555,8 +605,8 @@ public class BearRearPursuitState : BearStateBehaviour
     }
 
     // Uncertain look: did he change his behaviour? Runs, stops, faces it,
-    // backs away, comes at it; his course turned; he jerked the camera
-    // -> he saw it. Walks on as before for suspicionTime -> did not.
+    // backs away, comes at it; his course turned; he snapped the camera
+    // toward it -> he saw it. Walks on as before for suspicionTime -> did not.
     private bool CheckBehaviourChange(float distance)
     {
         PlayerAction act = reaction.Current;
@@ -571,8 +621,8 @@ public class BearRearPursuitState : BearStateBehaviour
             change = act.ToString();
         else if (turn > courseChangeAngle)
             change = "his course turned " + turn.ToString("F0") + " deg";
-        else if (reaction.TurnRate >= jerkTurnRate)
-            change = "he jerked the camera " + reaction.TurnRate.ToString("F0") + " deg/s";
+        else if (SnapTowardRate() >= jerkTurnRate)
+            change = "he snapped the camera toward it " + towardRate.ToString("F0") + " deg/s";
 
         if (change != null)
         {
@@ -588,6 +638,38 @@ public class BearRearPursuitState : BearStateBehaviour
             Log("he walks on as before - did not see it, the pattern goes on");
         }
         return false;
+    }
+
+    // Fix 11.11: only a snap TOWARD the bear counts (a double take) - the
+    // angle between his body and the bear shrinks fast. Turning back to his
+    // path, away from the bear, is what "I saw nothing" looks like (that
+    // turn alone gave 272-368 deg/s on 11.11). Measured over 0.1 s windows:
+    // per frame it is too noisy.
+    private float SnapTowardRate()
+    {
+        if (!Knowledge.IsSeeingPlayer)
+        {
+            sampleAngle = -1f;
+            towardRate = 0f;
+            return 0f;
+        }
+
+        float angle = reaction.FacingAngle;
+        if (sampleAngle < 0f)
+        {
+            sampleAngle = angle;
+            sampleTime = Time.time;
+            return towardRate;
+        }
+
+        float window = Time.time - sampleTime;
+        if (window >= 0.1f)
+        {
+            towardRate = (sampleAngle - angle) / window;     // > 0: turns toward the bear
+            sampleAngle = angle;
+            sampleTime = Time.time;
+        }
+        return towardRate;
     }
 
     // Canon 1.5: he looks its way -> stands still; unfreezeDelay after
@@ -625,16 +707,20 @@ public class BearRearPursuitState : BearStateBehaviour
     // ===============================================================
     // 4. FACE-OFF by mood (D-52)
     // ===============================================================
-    private void StartFaceOff(float distance, string why)
+    // escapeTime: Medium, how long he has to hide (found again - shorter).
+    private void StartFaceOff(float distance, string why, float escapeTime = -1f)
     {
         SetPhase(Phase.FaceOff);
         Movement.Stop();
         answer = Answer.None;
         hadRetreat = false;
         hiddenTimer = 0f;
-        listenUntil = 0f;
+        turnedAwayAt = -1f;
+        SetHearingBoost(false);
+        if (search != null)
+            search.Stop();
         releaseAt = Mathf.Max(releaseDistance, distance + backOffGain);
-        escapeDeadline = Time.time + reactionDelay + mediumEscapeTime;
+        escapeDeadline = Time.time + reactionDelay + (escapeTime > 0f ? escapeTime : mediumEscapeTime);
 
         Knowledge.MarkNoticed("pattern 1 - the player looked back at " + distance.ToString("F0") + " m");
         knownNoticedCount = Knowledge.NoticedCount;
@@ -654,14 +740,32 @@ public class BearRearPursuitState : BearStateBehaviour
 
         PlayerAction act = reaction.Current;
 
+        // Only real backing counts (10.11: standing a second after turning
+        // around also counted - then walking away was not a bluff).
+        if ((act == PlayerAction.BacksAway || act == PlayerAction.BacksAwaySlow) &&
+            reaction.TimeInCurrent >= backedAwayTime)
+            hadRetreat = true;
+
+        UpdateTurnedAway(act);
+
         if (act == PlayerAction.Unknown)
         {
+            // He turned his back and went out of sight: the bear saw him
+            // leave - that is "turned away", not "hid" (fix 11.11: under
+            // trees the bear never saw the 2 s in one piece).
+            if (turnedAwayAt >= 0f)
+            {
+                if (TurnedAwayLongEnough)
+                    TurnedAwayOutOfSight();
+                return;
+            }
+
             HandleHidden();
             return;
         }
 
         hiddenTimer = 0f;
-        listenUntil = 0f;
+        SetHearingBoost(false);
 
         // Comes at the bear - attack in any mood (one small step does not count).
         if (act == PlayerAction.Approaches && reaction.Speed >= approachAttackSpeed && reaction.TimeInCurrent >= approachAttackTime)
@@ -669,12 +773,6 @@ public class BearRearPursuitState : BearStateBehaviour
             Attack("he comes at the bear");
             return;
         }
-
-        // Only real backing counts (10.11: standing a second after turning
-        // around also counted - then walking away was not a bluff).
-        if ((act == PlayerAction.BacksAway || act == PlayerAction.BacksAwaySlow) &&
-            reaction.TimeInCurrent >= backedAwayTime)
-            hadRetreat = true;
 
         switch (Mood)
         {
@@ -691,7 +789,7 @@ public class BearRearPursuitState : BearStateBehaviour
         {
             if (hadRetreat)
             {
-                if (act == PlayerAction.WalksAway && reaction.TimeInCurrent < turnAwayGrace)
+                if (act == PlayerAction.WalksAway && !TurnedAwayLongEnough)
                     return;                                 // a short look where he goes
 
                 Log("he backed away, then turned away (" + act + ") - the bear does not understand, stalks again");
@@ -741,7 +839,7 @@ public class BearRearPursuitState : BearStateBehaviour
         {
             if (!hadRetreat)
                 Bluff();
-            else if (reaction.TimeInCurrent >= turnAwayGrace)       // a short look where he goes does not count
+            else if (TurnedAwayLongEnough)                          // a short look where he goes does not count
                 ChaseWithMercy(mediumMercy, "turned away while backing (medium)");
             return;
         }
@@ -794,7 +892,7 @@ public class BearRearPursuitState : BearStateBehaviour
         {
             if (!hadRetreat)
                 Bluff();
-            else if (reaction.TimeInCurrent >= turnAwayGrace)       // a short look where he goes does not count
+            else if (TurnedAwayLongEnough)                          // a short look where he goes does not count
                 Attack("turned away (angry)");
             return;
         }
@@ -828,6 +926,19 @@ public class BearRearPursuitState : BearStateBehaviour
     private void HandleHidden()
     {
         hiddenTimer += Time.deltaTime;
+
+        // Medium listens harder from the moment he is gone (11.11).
+        if (Mood == BearMoodLevel.Medium)
+        {
+            SetHearingBoost(true);
+
+            if (HeardStep(hiddenTimer, out float loudness) && loudness >= loudStep)
+            {
+                ChaseWithMercy(mediumMercy, "heard him " + StepName(loudness) + " after he hid (medium)");
+                return;
+            }
+        }
+
         if (hiddenTimer < hiddenTime)
             return;
 
@@ -842,21 +953,195 @@ public class BearRearPursuitState : BearStateBehaviour
                 return;
         }
 
-        // Medium: listens - hears him walk or run away -> chase.
-        if (listenUntil <= 0f)
-        {
-            listenUntil = Time.time + listenTime;
-            Log("he hid - listens " + listenTime + " s (medium)");
-        }
+        StartSearch(Knowledge.LastSeenPosition, "the place where it saw him last", "he hid");
+    }
 
-        if (Knowledge.TimeSinceHeard < 0.5f && Knowledge.LastHeardLoudness >= loudStep)
+    // --- Turned away after backing (fix 11.11) ---
+    // Counted from the moment he turned his back; does NOT reset when the
+    // bear loses sight of him. Resets only when the bear sees him facing
+    // it again (backing, standing, coming).
+    private void UpdateTurnedAway(PlayerAction act)
+    {
+        if (!hadRetreat)
         {
-            ChaseWithMercy(mediumMercy, "heard him " + (Knowledge.LastHeardLoudness >= 15f ? "run" : "walk") + " after hiding (medium)");
+            turnedAwayAt = -1f;
             return;
         }
 
-        if (Time.time >= listenUntil)
-            StartLeave("silence after he hid (medium)");
+        if (act == PlayerAction.WalksAway || act == PlayerAction.RunsAway)
+        {
+            if (turnedAwayAt < 0f)
+                turnedAwayAt = Time.time;
+        }
+        else if (act != PlayerAction.Unknown)
+        {
+            turnedAwayAt = -1f;
+        }
+    }
+
+    private bool TurnedAwayLongEnough => turnedAwayAt >= 0f && Time.time - turnedAwayAt >= turnAwayGrace;
+
+    private void TurnedAwayOutOfSight()
+    {
+        switch (Mood)
+        {
+            case BearMoodLevel.Good:
+                Log("he backed away, then turned away and went out of sight - the bear does not understand, stalks again");
+                ChangeState(BearState.Stalk);
+                return;
+
+            case BearMoodLevel.Medium:
+                ChaseWithMercy(mediumMercy, "turned away while backing, then out of sight (medium)");
+                return;
+
+            default:
+                Attack("turned away (angry), then out of sight");
+                return;
+        }
+    }
+
+    // ===============================================================
+    // 4a. LOST behind cover (Medium, 11.11): search, then memory.
+    // ===============================================================
+    private void StartSearch(Vector3 point, string pointName, string why)
+    {
+        if (search == null)
+        {
+            StartLeave(why + " - no BearAreaSearch on the bear, lets him go");
+            return;
+        }
+
+        SetPhase(Phase.Search);
+        Knowledge.SetLoseContactTime(9999f);            // stays "knows": the pattern itself decides when it forgets
+        SetHearingBoost(true);
+        if (vision != null)
+            vision.ClearLookTarget();
+
+        Log("SEARCH: " + why + " - checks " + pointName + ", then X, Y, Z; listens x" + hearingBoost);
+        search.Begin(point, pointName);
+    }
+
+    private void UpdateSearch()
+    {
+        if (CheckFoundOrHeard("while searching"))
+            return;
+
+        // A quiet step (louder ones end in a chase above) -> goes there.
+        if (HeardStep(PhaseTime, out float loudness))
+            search.Redirect(Knowledge.LastKnownPosition, "a quiet " + StepName(loudness));
+
+        search.Tick();
+
+        if (search.IsDone)
+            StartMemory();
+    }
+
+    private void StartMemory()
+    {
+        SetPhase(Phase.Lost);
+        SetHearingBoost(false);
+        memoryEnd = Time.time + memoryTime;
+        Movement.SetSpeedMultiplier(memoryWalkSpeed);
+        WanderOn();
+        Log("did not find him - remembers him " + memoryTime + " s, wanders off (patrol points), normal ears");
+    }
+
+    private void UpdateLost()
+    {
+        if (CheckFoundOrHeard("while it still remembers him"))
+            return;
+
+        // A quiet step close by -> searches again from there.
+        if (HeardStep(PhaseTime, out float loudness))
+        {
+            StartSearch(Knowledge.LastKnownPosition, "where it heard the sound", "heard a quiet " + StepName(loudness) + " close by");
+            return;
+        }
+
+        if (Time.time >= memoryEnd)
+        {
+            Log("FORGOT him after " + memoryTime + " s of memory - patrol, no long ignoring");
+            Knowledge.Release("pattern 1 - forgot him after the search", forgetIgnoreTime);
+            return;
+        }
+
+        if (Movement.HasReachedDestination())
+            WanderOn();
+    }
+
+    // Search or memory: he shows up, or he is heard.
+    //   seen walking / running away, or a walk / run heard -> chase;
+    //   seen standing, backing away or coming -> FACE-OFF again with only
+    //   refindEscapeTime to hide; found findsToAttack times -> attack.
+    private bool CheckFoundOrHeard(string where)
+    {
+        PlayerAction act = reaction.Current;
+
+        if (Knowledge.IsSeeingPlayer && act != PlayerAction.Unknown)
+        {
+            if (act == PlayerAction.RunsAway || act == PlayerAction.WalksAway)
+            {
+                ChaseWithMercy(mediumMercy, "saw him " + (act == PlayerAction.RunsAway ? "run" : "walk") + " away " + where + " (medium)");
+                return true;
+            }
+
+            finds++;
+            if (finds >= findsToAttack)
+            {
+                Attack("found him again " + where + " (meeting " + (finds + 1) + ") - he keeps hanging around (medium)");
+                return true;
+            }
+
+            StartFaceOff(DistanceToPlayer(), "found him again " + where + ", he " + act, refindEscapeTime);
+            return true;
+        }
+
+        if (HeardStep(PhaseTime, out float loudness) && loudness >= loudStep)
+        {
+            ChaseWithMercy(mediumMercy, "heard him " + StepName(loudness) + " " + where + " (medium)");
+            return true;
+        }
+
+        return false;
+    }
+
+    // A step heard less than 0.5 s ago, and not before 'since' seconds ago
+    // (a step heard while the bear still saw him does not count).
+    private bool HeardStep(float since, out float loudness)
+    {
+        loudness = Knowledge.LastHeardLoudness;
+        float age = Knowledge.TimeSinceHeard;
+        return age < 0.5f && age < since;
+    }
+
+    private static string StepName(float loudness)
+    {
+        if (loudness >= 15f) return "run";
+        if (loudness >= 10f) return "walk";
+        if (loudness >= 5f) return "step back";
+        return "slow step";
+    }
+
+    private void WanderOn()
+    {
+        Transform point = patrol != null ? patrol.GetRandomPoint() : null;
+
+        if (point != null)
+            Movement.MoveTo(point.position);
+        else
+            Movement.Stop();
+    }
+
+    private void SetHearingBoost(bool on)
+    {
+        if (hearing == null || on == hearingBoosted)
+            return;
+
+        hearingBoosted = on;
+        if (on)
+            hearing.SetRangeMultiplier(hearingBoost);
+        else
+            hearing.ResetRangeMultiplier();
     }
 
     // ===============================================================
@@ -924,7 +1209,7 @@ public class BearRearPursuitState : BearStateBehaviour
         leavePoint = transform.position + away.normalized * coverSearch.x;
         float best = float.MaxValue;
 
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < 24; i++)           // 24 random points: the range grew to 25 m
         {
             Vector3 direction = Quaternion.Euler(0f, Random.Range(-100f, 100f), 0f) * away.normalized;
             Vector3 candidate = transform.position + direction * Random.Range(coverSearch.x, coverSearch.y);

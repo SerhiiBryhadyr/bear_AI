@@ -56,9 +56,9 @@ public class BearChaseState : BearStateBehaviour
 
     [Header("Chase from a pattern (D-52)")]
     [Tooltip("Mercy comes at a random moment this long after the start (s)...")]
-    public Vector2 mercyAfter = new Vector2(2f, 5f);
+    public Vector2 mercyAfter = new Vector2(4f, 7f);
     [Tooltip("...or earlier, when the bear gets this close (m).")]
-    public float mercyDistance = 4f;
+    public float mercyDistance = 5f;
     [Tooltip("Mercy: the bear runs this far from the player (m), to its side, into the forest.")]
     public Vector2 mercyRunDistance = new Vector2(25f, 35f);
     [Tooltip("Mercy run at most this long (s), then it lets the player go.")]

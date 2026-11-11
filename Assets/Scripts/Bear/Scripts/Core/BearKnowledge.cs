@@ -257,9 +257,12 @@ public class BearKnowledge : MonoBehaviour
     // the one it has just let go). Later the director (D-22) brings it
     // back onto the player's way.
     // ---------------------------------------------------------------
-    public void Release(string reason)
+    // seconds < 0 -> a random releaseTime. A short time (pattern 1 forgets
+    // him after the search, 11.11) only makes BearBrain choose patrol.
+    public void Release(string reason, float seconds = -1f)
     {
-        float seconds = UnityEngine.Random.Range(releaseTime.x, releaseTime.y);
+        if (seconds < 0f)
+            seconds = UnityEngine.Random.Range(releaseTime.x, releaseTime.y);
         ignoreUntil = Time.time + seconds;
         IsSeeingPlayer = false;
         lookTimer = 0f;

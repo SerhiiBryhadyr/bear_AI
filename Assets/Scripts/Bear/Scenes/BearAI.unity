@@ -329,6 +329,7 @@ MonoBehaviour:
   mercyRunDistance: {x: 25, y: 35}
   mercyRunTime: 6
   attackHold: 2
+  patternLoseContactTime: 6
 --- !u!114 &694889797
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -424,6 +425,7 @@ MonoBehaviour:
   pursuitTime: 15
   forcePattern: 1
   patternCooldown: 10
+  patternAfterLook: 5
   bodyHeight: 0.9
   bodyHalfLength: 0.9
   playerEyeHeight: 1.6
@@ -457,6 +459,7 @@ MonoBehaviour:
   confirmTime: 0.3
   velocitySmoothing: 0.15
   lostAfter: 1
+  turnSmoothing: 0.15
   logChanges: 1
 --- !u!114 &694889822
 MonoBehaviour:
@@ -470,7 +473,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f82cd936d38244e83bc76137d2cacf14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  level: 0
+  level: 1
 --- !u!114 &694889823
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -496,8 +499,15 @@ MonoBehaviour:
   warningAt: 15
   warningWindow: 5
   angryWindow: 2.5
-  noticeAngle: 35
-  noticeTime: 0.3
+  warningMaxExtra: 5
+  fleeConfirm: 0.5
+  sureLookAngle: 20
+  lookTime: 0.6
+  screenAngle: 45
+  assumeSeenDistance: 15
+  suspicionTime: 4
+  courseChangeAngle: 45
+  jerkTurnRate: 150
   closeNoticeRange: 32
   faceOffRange: 32
   unfreezeDelay: 0.7
@@ -513,6 +523,9 @@ MonoBehaviour:
   mediumBluffAttack: 0.5
   angryHesitation: {x: 3, y: 8}
   releaseDistance: 25
+  backOffGain: 10
+  turnAwayGrace: 2
+  mediumEscapeTime: 15
   hiddenTime: 2
   listenTime: 4
   loudStep: 10

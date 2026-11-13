@@ -211,6 +211,7 @@ public class BearRearPursuitState : BearStateBehaviour
     public float TimeSinceEnded => Time.time - endedAt;
 
     private BearVision vision;
+    private BearBodyPoints bodyPoints;
     private BearPlayerReaction reaction;
     private BearMood mood;
     private BearChaseState chase;
@@ -274,6 +275,7 @@ public class BearRearPursuitState : BearStateBehaviour
     {
         base.Awake();
         vision = GetComponent<BearVision>();
+        bodyPoints = GetComponent<BearBodyPoints>();
         reaction = GetComponent<BearPlayerReaction>();
         mood = GetComponent<BearMood>();
         chase = GetComponent<BearChaseState>();
@@ -1373,7 +1375,8 @@ public class BearRearPursuitState : BearStateBehaviour
             return 1f;
 
         Vector3 eye = player + Vector3.up * 1.6f;
-        Vector3 body = point + Vector3.up * 0.9f;
+        float bodyHeight = bodyPoints != null && bodyPoints.Active ? bodyPoints.BodyHeight : 0.9f;   // from the bones (13.11)
+        Vector3 body = point + Vector3.up * bodyHeight;
         return LineOfSight.PointVisibility(eye, body, transform, Knowledge.Player,
                                            vision.blockingLayers, vision.foliageLayers, vision.foliageBlock);
     }

@@ -52,6 +52,7 @@ public class BearTrackingState : BearStateBehaviour
     private enum Reaction { None, Approach, CautiousApproach, Watch }
 
     private PlayerDominance playerDominance;
+    private BearBodyPoints bodyPoints;
 
     private Reaction currentReaction;
     private float reactionTime;             // how long the current reaction lasts
@@ -203,7 +204,7 @@ public class BearTrackingState : BearStateBehaviour
 
     private void StopAndFaceIfClose(float stopDistance, Vector3 playerPosition)
     {
-        if (DistanceToPlayer() > stopDistance)
+        if (CloseDistanceToPlayer() > stopDistance)
             return;
 
         Movement.Stop();
@@ -218,7 +219,7 @@ public class BearTrackingState : BearStateBehaviour
     // ---------------------------------------------------------------
     private void UpdateApproachTarget(float stopDistance, float prediction)
     {
-        if (DistanceToPlayer() <= stopDistance + 0.5f)
+        if (CloseDistanceToPlayer() <= stopDistance + 0.5f)
             return;
 
         Vector3 velocity = Knowledge.IsSeeingPlayer ? Knowledge.LastKnownVelocity : Vector3.zero;
@@ -229,7 +230,7 @@ public class BearTrackingState : BearStateBehaviour
 
         Vector3 target = predicted;
         if (fromPlayerToBear.sqrMagnitude > 0.01f)
-            target = predicted + fromPlayerToBear.normalized * stopDistance;
+            target = predicted + fromPlayerToBear.normalized * (stopDistance + MuzzleAhead());   // the root stops farther, the muzzle at stopDistance
 
         Movement.MoveTo(target);
     }
@@ -239,5 +240,30 @@ public class BearTrackingState : BearStateBehaviour
         Vector3 offset = Knowledge.LastKnownPosition - transform.position;
         offset.y = 0f;
         return offset.magnitude;
+    }
+
+    // ---------------------------------------------------------------
+    // Stop distances (2.5 / 6 m) count from the muzzle (13.11); the end
+    // of the encounter (25 m) - from the root, as before. Without
+    // BearBodyPoints both are from the root.
+    // ---------------------------------------------------------------
+    private float CloseDistanceToPlayer()
+    {
+        BearBodyPoints body = BodyPoints();
+        return body != null ? body.DistanceFromMuzzle(Knowledge.LastKnownPosition) : DistanceToPlayer();
+    }
+
+    private float MuzzleAhead()
+    {
+        BearBodyPoints body = BodyPoints();
+        return body != null ? body.MuzzleAhead : 0f;
+    }
+
+    private BearBodyPoints BodyPoints()
+    {
+        if (bodyPoints == null)
+            bodyPoints = GetComponent<BearBodyPoints>();
+
+        return bodyPoints != null && bodyPoints.Active ? bodyPoints : null;
     }
 }

@@ -13,6 +13,13 @@ using UnityEngine;
 //
 // Select the bear in the Scene view: yellow spheres = the points.
 // Check that they sit inside the model.
+//
+// Close checks (13.11): the muzzle is ~1.8 m ahead of the root, so
+// "how close is the player" counts from the muzzle (chase, Tracking)
+// or from the body line head -> rear (side view, BearVision), and the
+// bear's height / length for cover checks come from these points, not
+// from fixed numbers. They follow the bones, so they also follow the
+// model's scale. Use For Checks off = the old behaviour everywhere.
 // =====================================================================
 public class BearBodyPoints : MonoBehaviour
 {
@@ -27,6 +34,13 @@ public class BearBodyPoints : MonoBehaviour
     public Vector3 headOffset = new Vector3(0f, 1.0f, 1.1f);
     public Vector3 bodyOffset = new Vector3(0f, 0.9f, 0f);
     public Vector3 rearOffset = new Vector3(0f, 0.9f, -0.9f);
+
+    [Header("Close checks (13.11)")]
+    [Tooltip("On: close distances count from the muzzle / the body and cover checks take the bear's height and length from these points. Off: old behaviour - from the root and the fixed numbers in the states.")]
+    public bool useForChecks = true;
+
+    // States ask this before using the methods below.
+    public bool Active => isActiveAndEnabled && useForChecks;
 
     private Transform eyes;
 
@@ -61,6 +75,54 @@ public class BearBodyPoints : MonoBehaviour
     private Vector3 FromRoot(Vector3 offset)
     {
         return transform.position + transform.rotation * offset;
+    }
+
+    // ---------------------------------------------------------------
+    // Distances and sizes from the body (13.11). Distances are flat
+    // (on the ground plane), the same way the states measure them.
+    // ---------------------------------------------------------------
+    public Vector3 Muzzle => GetPoint(0);
+
+    // From the muzzle (head point = Eyes) to a point.
+    public float DistanceFromMuzzle(Vector3 point)
+    {
+        return FlatDistance(Muzzle, point);
+    }
+
+    // From the nearest point of the body line head -> rear to a point:
+    // "right next to the bear" from any side, not only in front.
+    public float DistanceFromBody(Vector3 point)
+    {
+        Vector3 a = Flat(GetPoint(0));
+        Vector3 b = Flat(GetPoint(2));
+        Vector3 p = Flat(point);
+        Vector3 ab = b - a;
+
+        float t = ab.sqrMagnitude > 0.0001f ? Mathf.Clamp01(Vector3.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+        return Vector3.Distance(p, a + ab * t);
+    }
+
+    // How far the muzzle is ahead of the root (m).
+    public float MuzzleAhead => FlatDistance(transform.position, Muzzle);
+
+    // Above the root (= the ground under the bear), m.
+    public float EyeHeight => GetPoint(0).y - transform.position.y;
+    public float BodyHeight => GetPoint(1).y - transform.position.y;
+
+    // Half the length head -> rear (m): the silhouette in cover checks.
+    public float HalfLength => FlatDistance(GetPoint(0), GetPoint(2)) * 0.5f;
+
+    private static Vector3 Flat(Vector3 vector)
+    {
+        vector.y = 0f;
+        return vector;
+    }
+
+    private static float FlatDistance(Vector3 a, Vector3 b)
+    {
+        a.y = 0f;
+        b.y = 0f;
+        return Vector3.Distance(a, b);
     }
 
     private void OnDrawGizmosSelected()

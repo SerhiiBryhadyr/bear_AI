@@ -52,7 +52,7 @@ public class BearVision : MonoBehaviour
     public float maxHalfAngle = 65f;
     [Tooltip("Range at the very edge of the view (m).")]
     public float edgeRange = 3f;
-    [Tooltip("Closer than this (m) the bear notices the player at any angle (hears, smells, side vision). Obstacles still count.")]
+    [Tooltip("Closer than this (m) to the bear's body - any side, head to rear (BearBodyPoints, 13.11) - the bear notices the player at any angle (hears, smells, side vision). Obstacles still count. Without BearBodyPoints - from the eyes.")]
     public float closeRange = 2.5f;
 
     [Header("Head turn (D-32, logic only)")]
@@ -88,6 +88,7 @@ public class BearVision : MonoBehaviour
 
     private CharacterController playerBody;
     private PlayerController playerController;
+    private BearBodyPoints bodyPoints;
 
     private readonly Vector3[] points = new Vector3[PointCount];
     private readonly float[] pointVisibility = new float[PointCount];
@@ -104,6 +105,8 @@ public class BearVision : MonoBehaviour
     {
         if (foliageLayers.value == 0)
             foliageLayers = LayerMask.GetMask("Foliage");
+
+        bodyPoints = GetComponent<BearBodyPoints>();
 
         GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
 
@@ -141,8 +144,13 @@ public class BearVision : MonoBehaviour
         LastDistance = Vector3.Distance(eye, bodyCenter);
 
         // 1. Angle -> how much of the full range is left at this angle.
-        //    Right next to the bear the angle does not matter.
-        float angleFactor = LastDistance <= closeRange ? 1f : AngleFactor(bodyCenter - eye);
+        //    Right next to the bear the angle does not matter. "Next to" =
+        //    close to its body from any side (13.11), not only to the eyes:
+        //    the eyes are ~1.8 m ahead, a player beside the body was missed.
+        float closeDistance = bodyPoints != null && bodyPoints.Active
+            ? bodyPoints.DistanceFromBody(bodyCenter)
+            : LastDistance;
+        float angleFactor = closeDistance <= closeRange ? 1f : AngleFactor(bodyCenter - eye);
         if (angleFactor <= 0f)
             return Report(false, "outside the view angle");
 

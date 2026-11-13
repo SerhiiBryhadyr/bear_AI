@@ -19,8 +19,9 @@ using UnityEngine.AI;
 //    calmTime -> back to Tracking.
 // 4. Chase from a pattern (D-52) ends only one of two ways - the
 //    decision is made, it does not calm down:
-//    - MERCY (chance by mood, given by the pattern): at a random moment
-//      or when close, the bear veers off into the forest and lets the
+//    - MERCY (chance by mood, given by the pattern): once the muzzle is
+//      within mercyWindow, after a random mercyDelay (or at once at
+//      mercyDistance) the bear veers off into the forest and lets the
 //      player go (BearKnowledge.Release -> patrol);
 //    - ATTACK: caught up -> log ATTACK (placeholder: there is no attack
 //      yet), stands attackHold seconds, then lets the player go.
@@ -44,7 +45,7 @@ public class BearChaseState : BearStateBehaviour
     public float repathInterval = 0.2f;
 
     [Header("Caught up")]
-    [Tooltip("The bear stops this close (m). From Tracking it waits; from a pattern - ATTACK (placeholder).")]
+    [Tooltip("The bear stops this close (m, from the muzzle - BearBodyPoints, 13.11). From Tracking it waits; from a pattern - ATTACK (placeholder).")]
     public float catchDistance = 2f;
     public float turnSpeed = 360f;          // deg/s when facing the player in place
 
@@ -55,9 +56,11 @@ public class BearChaseState : BearStateBehaviour
     public float calmTime = 1.5f;
 
     [Header("Chase from a pattern (D-52)")]
-    [Tooltip("Mercy comes at a random moment this long after the start (s)...")]
-    public Vector2 mercyAfter = new Vector2(4f, 7f);
-    [Tooltip("...or earlier, when the bear gets this close (m).")]
+    [Tooltip("Mercy countdown starts only when the muzzle is this close (m): it always veers off on his heels, not from afar (13.11).")]
+    public float mercyWindow = 10f;
+    [Tooltip("...then mercy comes after a random delay in this range (s)...")]
+    public Vector2 mercyDelay = new Vector2(1f, 3f);
+    [Tooltip("...or earlier, when the bear gets this close (m, from the muzzle).")]
     public float mercyDistance = 5f;
     [Tooltip("Mercy: the bear runs this far from the player (m), to its side, into the forest.")]
     public Vector2 mercyRunDistance = new Vector2(25f, 35f);
@@ -81,7 +84,9 @@ public class BearChaseState : BearStateBehaviour
     private string reason = "";
 
     private bool willSpare;
-    private float spareAt;
+    private float spareAt;          // -1 = the countdown has not started (outside mercyWindow)
+    private float spareDelay;
+    private BearBodyPoints bodyPoints;
     private Vector3 mercyPoint;
     private float timer;
 
@@ -112,7 +117,8 @@ public class BearChaseState : BearStateBehaviour
             mode = ChaseMode.FromPattern;
             Knowledge.SetLoseContactTime(patternLoseContactTime);
             willSpare = Random.value < preparedMercy;
-            spareAt = Time.time + Random.Range(mercyAfter.x, mercyAfter.y);
+            spareAt = -1f;
+            spareDelay = Random.Range(mercyDelay.x, mercyDelay.y);
 
             Debug.Log("[Chase] started by the pattern: " + reason + ", " + DistanceToPlayer().ToString("F1") +
                       " m, mercy chance " + Mathf.RoundToInt(preparedMercy * 100f) + "% -> " +
@@ -166,8 +172,7 @@ public class BearChaseState : BearStateBehaviour
             return;
         }
 
-        if (mode == ChaseMode.FromPattern && willSpare &&
-            (Time.time >= spareAt || DistanceToPlayer() <= mercyDistance))
+        if (mode == ChaseMode.FromPattern && willSpare && TimeToSpare())
         {
             StartMercy();
             return;
@@ -182,6 +187,25 @@ public class BearChaseState : BearStateBehaviour
 
         repathTimer = repathInterval;
         RunToTarget();
+    }
+
+    // ---------------------------------------------------------------
+    // Mercy moment (D-52, 13.11). Before: a random 4-7 s from the start -
+    // a chase from 11 m spared him at 11 m, he never felt caught. Now the
+    // countdown starts only inside mercyWindow, so mercy comes at about
+    // mercyDistance..mercyWindow from the muzzle; at mercyDistance - at once.
+    // ---------------------------------------------------------------
+    private bool TimeToSpare()
+    {
+        float distance = DistanceToPlayer();
+
+        if (distance <= mercyDistance)
+            return true;
+
+        if (spareAt < 0f && distance <= mercyWindow)
+            spareAt = Time.time + spareDelay;
+
+        return spareAt >= 0f && Time.time >= spareAt;
     }
 
     // Seen slower than calmSpeed long enough. Not seeing = unknown, timer resets.
@@ -291,8 +315,17 @@ public class BearChaseState : BearStateBehaviour
         Knowledge.Release("after the attack (placeholder)");
     }
 
+    // From the muzzle (13.11): the muzzle is ~1.8 m ahead of the root, so
+    // from the root the bear ran into the player before it "caught" him.
+    // Without BearBodyPoints - from the root, as before.
     private float DistanceToPlayer()
     {
+        if (bodyPoints == null)
+            bodyPoints = GetComponent<BearBodyPoints>();
+
+        if (bodyPoints != null && bodyPoints.Active)
+            return bodyPoints.DistanceFromMuzzle(Knowledge.LastKnownPosition);
+
         return Flat(Knowledge.LastKnownPosition - transform.position).magnitude;
     }
 

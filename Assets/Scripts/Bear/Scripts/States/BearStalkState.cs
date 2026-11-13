@@ -166,9 +166,9 @@ public class BearStalkState : BearStateBehaviour
     public float patternAfterLook = 5f;
 
     [Header("Checks")]
-    [Tooltip("Height of the bear's body above a point when checking whether the player could see it (m).")]
+    [Tooltip("Height of the bear's body above a point when checking whether the player could see it (m). Used only without BearBodyPoints (13.11: taken from the bones).")]
     public float bodyHeight = 0.9f;
-    [Tooltip("Half the bear's body length (m): head and rear points of the 3-ray check.")]
+    [Tooltip("Half the bear's body length (m): head and rear points of the 3-ray check. Used only without BearBodyPoints (13.11: taken from the bones).")]
     public float bodyHalfLength = 0.9f;
     [Tooltip("The player's eye height above his feet, if he has no CharacterController (m).")]
     public float playerEyeHeight = 1.6f;
@@ -202,6 +202,7 @@ public class BearStalkState : BearStateBehaviour
     private BearVision vision;
     private BearPlayerAnalysis analysis;
     private BearRearPursuitState rearPursuit;
+    private BearBodyPoints bodyPoints;
     private CharacterController playerBody;
 
     private Phase phase;
@@ -269,6 +270,7 @@ public class BearStalkState : BearStateBehaviour
         vision = GetComponent<BearVision>();
         analysis = GetComponent<BearPlayerAnalysis>();
         rearPursuit = GetComponent<BearRearPursuitState>();
+        bodyPoints = GetComponent<BearBodyPoints>();
     }
 
     private void OnEnable()
@@ -565,7 +567,7 @@ public class BearStalkState : BearStateBehaviour
             if (!NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3f, NavMesh.AllAreas))
                 continue;
 
-            Vector3 eye = hit.position + Vector3.up * vision.eyeHeight;
+            Vector3 eye = hit.position + Vector3.up * BearEyeHeight();
             float view = LineOfSight.PointVisibility(eye, playerChest, Knowledge.Player, transform,
                                                      vision.blockingLayers, vision.foliageLayers, vision.foliageBlock);
             if (view > bestView)
@@ -1089,9 +1091,9 @@ public class BearStalkState : BearStateBehaviour
             ? Vector3.Cross(Vector3.up, toPoint.normalized)
             : Vector3.right;
 
-        Vector3 body = point + Vector3.up * bodyHeight;
-        Vector3 head = body + along * bodyHalfLength + Vector3.up * 0.1f;
-        Vector3 rear = body - along * bodyHalfLength;
+        Vector3 body = point + Vector3.up * BearBodyHeight();
+        Vector3 head = body + along * BearHalfLength() + Vector3.up * 0.1f;
+        Vector3 rear = body - along * BearHalfLength();
 
         float sum = RayFromPlayer(eye, head) + RayFromPlayer(eye, body) + RayFromPlayer(eye, rear);
         return sum / 3f;
@@ -1108,7 +1110,7 @@ public class BearStalkState : BearStateBehaviour
     // range = maxViewDistance x visible x walkFactor.
     private bool SeesPlayerFrom(Vector3 point, Vector3 player)
     {
-        Vector3 eye = point + Vector3.up * vision.eyeHeight;
+        Vector3 eye = point + Vector3.up * BearEyeHeight();
         Vector3 chest = player + Vector3.up * PlayerChestHeight();
         float distance = Vector3.Distance(eye, chest);
 
@@ -1206,6 +1208,28 @@ public class BearStalkState : BearStateBehaviour
 
     // Eye / chest height of the player above the point the bear tracks
     // (his transform), from his CharacterController if he has one.
+    // ---------------------------------------------------------------
+    // The bear's own size from its bones (13.11, BearBodyPoints): eyes,
+    // body and length follow the model and its scale. The numbers in
+    // the Inspector are used only without BearBodyPoints.
+    // ---------------------------------------------------------------
+    private bool HasBodyPoints => bodyPoints != null && bodyPoints.Active;
+
+    private float BearEyeHeight()
+    {
+        return HasBodyPoints ? bodyPoints.EyeHeight : vision.eyeHeight;
+    }
+
+    private float BearBodyHeight()
+    {
+        return HasBodyPoints ? bodyPoints.BodyHeight : bodyHeight;
+    }
+
+    private float BearHalfLength()
+    {
+        return HasBodyPoints ? bodyPoints.HalfLength : bodyHalfLength;
+    }
+
     private float PlayerEyeHeight()
     {
         FindPlayerBody();

@@ -124,6 +124,8 @@ public class BearRearPursuitState : BearStateBehaviour
     public float courseChangeAngle = 45f;
     [Tooltip("...or he snapped the camera TOWARD the bear faster than this (deg/s; turning away does not count).")]
     public float jerkTurnRate = 250f;
+    [Tooltip("...or jerked the camera AWAY from the bear faster than this (deg/s): a startled flick. A normal turn back to the path is ~270-370 deg/s (11.11), 180 deg in 0.25 s = 720.")]
+    public float jerkAwayRate = 500f;
     [Tooltip("The close rule works up to this distance (m); farther - the normal opinion of BearKnowledge.")]
     public float closeNoticeRange = 32f;
     [Tooltip("Noticed farther than this (m) during the approach -> back to stalking (D-42), not a face-off.")]
@@ -136,8 +138,8 @@ public class BearRearPursuitState : BearStateBehaviour
     public float reactionDelay = 0.8f;
     [Tooltip("'Comes at the bear' counts only this fast (m/s)...")]
     public float approachAttackSpeed = 1f;
-    [Tooltip("...for this long (s): one small step is no reason to attack.")]
-    public float approachAttackTime = 0.5f;
+    [Tooltip("...and only after he really got this much closer (m) walking toward it: turning around on the move is no reason to attack (11.11).")]
+    public float approachGain = 2f;
     [Tooltip("Backing away (S or S+Shift) this long (s) = 'he has backed away': turning away after it is not a bluff. Standing does not count.")]
     public float backedAwayTime = 1f;
     [Range(0f, 1f)] public float goodMercy = 0.95f;
@@ -158,6 +160,8 @@ public class BearRearPursuitState : BearStateBehaviour
     public float backOffGain = 10f;
     [Tooltip("A look away shorter than this (s) - to see where he goes while backing - is not 'turned away'.")]
     public float turnAwayGrace = 2f;
+    [Tooltip("Walking away (without backing first) counts as a bluff only after this long (s): a step aside or turning on the spot is not a bluff (11.11).")]
+    public float bluffConfirm = 1f;
     [Tooltip("Medium, slow backing / standing: he must hide from the bear within this time (s) from the face-off, or it attacks. Only cover saves (10.11).")]
     public float mediumEscapeTime = 15f;
     [Tooltip("Hidden from the bear this long (s) -> Good lets him go, Medium listens first.")]
@@ -227,7 +231,9 @@ public class BearRearPursuitState : BearStateBehaviour
     private float suspicionEnd;
     private float sampleAngle = -1f;    // snap toward the bear: angle at the start of a 0.1 s window
     private float sampleTime;
-    private float towardRate;
+    private float towardRate;           // > 0 toward the bear, < 0 away (deg/s)
+    private float maxToward;            // the fastest turns while it watches him (for the log)
+    private float maxAway;
     private PlayerAction actionBeforeLook;
     private Vector3 routeBeforeLook;
     private bool frozen;
@@ -251,6 +257,7 @@ public class BearRearPursuitState : BearStateBehaviour
     private bool hearingBoosted;
     private int finds;                  // Medium: found him again after losing him
     private float memoryEnd;
+    private float approachFrom = -1f;   // distance when he started walking toward the bear (-1 = he does not)
     private float releaseAt;            // Good: lets him go at this distance
     private float escapeDeadline;       // Medium: must be hidden by then
 
@@ -580,6 +587,8 @@ public class BearRearPursuitState : BearStateBehaviour
                 suspicionEnd = Time.time + suspicionTime;
                 sampleAngle = -1f;
                 towardRate = 0f;
+                maxToward = 0f;
+                maxAway = 0f;
                 Log("UNCERTAIN: it was on his screen (" + angle.ToString("F0") + " deg, " + distance.ToString("F0") +
                     " m) - did he see it? Watches his behaviour " + suspicionTime + " s");
             }
@@ -621,8 +630,14 @@ public class BearRearPursuitState : BearStateBehaviour
             change = act.ToString();
         else if (turn > courseChangeAngle)
             change = "his course turned " + turn.ToString("F0") + " deg";
-        else if (SnapTowardRate() >= jerkTurnRate)
-            change = "he snapped the camera toward it " + towardRate.ToString("F0") + " deg/s";
+        else
+        {
+            float rate = TurnRateToBear();
+            if (rate >= jerkTurnRate && reaction.FacingAngle <= 90f)     // near 180 a turn past it looks like "toward"
+                change = "he snapped the camera toward it " + rate.ToString("F0") + " deg/s";
+            else if (-rate >= jerkAwayRate)
+                change = "he jerked the camera away from it " + (-rate).ToString("F0") + " deg/s (startled)";
+        }
 
         if (change != null)
         {
@@ -635,17 +650,18 @@ public class BearRearPursuitState : BearStateBehaviour
         {
             suspicious = false;
             screenTimer = 0f;
-            Log("he walks on as before - did not see it, the pattern goes on");
+            Log("he walks on as before - did not see it, the pattern goes on (fastest turn: toward " +
+                maxToward.ToString("F0") + ", away " + maxAway.ToString("F0") + " deg/s)");
         }
         return false;
     }
 
-    // Fix 11.11: only a snap TOWARD the bear counts (a double take) - the
-    // angle between his body and the bear shrinks fast. Turning back to his
-    // path, away from the bear, is what "I saw nothing" looks like (that
-    // turn alone gave 272-368 deg/s on 11.11). Measured over 0.1 s windows:
+    // How fast his body turns toward (+) or away from (-) the bear, deg/s
+    // (11.11). Toward fast = a double take (jerkTurnRate). Away: a normal
+    // turn back to the path (~270-370 deg/s) is "I saw nothing"; only a
+    // startled flick counts (jerkAwayRate). Measured over 0.1 s windows:
     // per frame it is too noisy.
-    private float SnapTowardRate()
+    private float TurnRateToBear()
     {
         if (!Knowledge.IsSeeingPlayer)
         {
@@ -668,6 +684,8 @@ public class BearRearPursuitState : BearStateBehaviour
             towardRate = (sampleAngle - angle) / window;     // > 0: turns toward the bear
             sampleAngle = angle;
             sampleTime = Time.time;
+            maxToward = Mathf.Max(maxToward, towardRate);
+            maxAway = Mathf.Max(maxAway, -towardRate);
         }
         return towardRate;
     }
@@ -750,6 +768,8 @@ public class BearRearPursuitState : BearStateBehaviour
 
         if (act == PlayerAction.Unknown)
         {
+            approachFrom = -1f;
+
             // He turned his back and went out of sight: the bear saw him
             // leave - that is "turned away", not "hid" (fix 11.11: under
             // trees the bear never saw the 2 s in one piece).
@@ -768,7 +788,7 @@ public class BearRearPursuitState : BearStateBehaviour
         SetHearingBoost(false);
 
         // Comes at the bear - attack in any mood (one small step does not count).
-        if (act == PlayerAction.Approaches && reaction.Speed >= approachAttackSpeed && reaction.TimeInCurrent >= approachAttackTime)
+        if (ComesAtBear(distance))
         {
             Attack("he comes at the bear");
             return;
@@ -802,6 +822,9 @@ public class BearRearPursuitState : BearStateBehaviour
                 ChaseWithMercy(goodMercy, "he runs (good mood)");
                 return;
             }
+
+            if (reaction.TimeInCurrent < bluffConfirm)
+                return;                                     // a step aside is not a bluff (11.11)
 
             if (answer != Answer.Threat)
             {
@@ -838,7 +861,10 @@ public class BearRearPursuitState : BearStateBehaviour
         if (act == PlayerAction.WalksAway)
         {
             if (!hadRetreat)
-                Bluff();
+            {
+                if (reaction.TimeInCurrent >= bluffConfirm)     // a step aside is not a bluff (11.11)
+                    Bluff();
+            }
             else if (TurnedAwayLongEnough)                          // a short look where he goes does not count
                 ChaseWithMercy(mediumMercy, "turned away while backing (medium)");
             return;
@@ -891,7 +917,10 @@ public class BearRearPursuitState : BearStateBehaviour
         if (act == PlayerAction.WalksAway)
         {
             if (!hadRetreat)
-                Bluff();
+            {
+                if (reaction.TimeInCurrent >= bluffConfirm)     // a step aside is not a bluff (11.11)
+                    Bluff();
+            }
             else if (TurnedAwayLongEnough)                          // a short look where he goes does not count
                 Attack("turned away (angry)");
             return;
@@ -1234,8 +1263,7 @@ public class BearRearPursuitState : BearStateBehaviour
     private void UpdateLeaving(float distance)
     {
         // Comes at the bear while it leaves - still an attack.
-        if (reaction.Current == PlayerAction.Approaches && reaction.Speed >= approachAttackSpeed &&
-            reaction.TimeInCurrent >= approachAttackTime && distance < releaseDistance)
+        if (ComesAtBear(distance) && distance < releaseDistance)
         {
             Attack("he comes at the bear while it leaves");
             return;
@@ -1264,6 +1292,24 @@ public class BearRearPursuitState : BearStateBehaviour
         phaseStart = Time.time;
         repathTimer = 0f;
         frozen = false;
+        approachFrom = -1f;
+    }
+
+    // He walks or runs at the bear AND has really come approachGain closer
+    // since he started (11.11: turning around while walking passed 40 deg
+    // from the bear for 0.8 s and counted as an attack from 24 m).
+    private bool ComesAtBear(float distance)
+    {
+        if (reaction.Current != PlayerAction.Approaches || reaction.Speed < approachAttackSpeed)
+        {
+            approachFrom = -1f;
+            return false;
+        }
+
+        if (approachFrom < 0f)
+            approachFrom = distance;
+
+        return approachFrom - distance >= approachGain;
     }
 
     private void Repath(Vector3 point)

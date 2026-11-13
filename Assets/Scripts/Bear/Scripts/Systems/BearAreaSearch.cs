@@ -30,7 +30,7 @@ public class BearAreaSearch : MonoBehaviour
     public float glanceInterval = 1.2f;
     [Tooltip("Walking speed while searching (x the normal speed).")]
     public float speedMultiplier = 0.8f;
-    [Tooltip("Gives up a point it cannot reach in this time (s).")]
+    [Tooltip("Gives up a point it cannot reach: the time to walk there x1.5 + 5 s, but not less than this (s). Fix 11.11: a flat 15 s stopped it 16 m short of a far point.")]
     public float walkTimeout = 15f;
     [Tooltip("A new sound redirects the search not more often than this (s).")]
     public float redirectCooldown = 2f;
@@ -50,6 +50,7 @@ public class BearAreaSearch : MonoBehaviour
     public bool IsActive => step == Step.Walking || step == Step.Looking;
 
     private BearMovement movement;
+    private NavMeshAgent agent;
     private Step step = Step.Idle;
     private Vector3 center;             // the first point - X, Y, Z are around it
     private Vector3 target;
@@ -66,6 +67,7 @@ public class BearAreaSearch : MonoBehaviour
     private void Awake()
     {
         movement = GetComponent<BearMovement>();
+        agent = GetComponent<NavMeshAgent>();
 
         if (movement == null)
             Debug.LogError("BearAreaSearch: BearMovement is missing on the bear.");
@@ -141,10 +143,14 @@ public class BearAreaSearch : MonoBehaviour
         target = point;
         targetName = name;
         step = Step.Walking;
-        walkEnd = Time.time + walkTimeout;
 
         movement.SetSpeedMultiplier(speedMultiplier);
         movement.MoveTo(point);
+
+        // Time to get there at the search speed, with a margin.
+        float speed = agent != null ? Mathf.Max(agent.speed, 0.5f) : 1f;
+        float walkTime = Vector3.Distance(transform.position, point) / speed * 1.5f + 5f;
+        walkEnd = Time.time + Mathf.Max(walkTimeout, walkTime);
         Debug.Log("[Search] goes to " + name + ", " + Vector3.Distance(transform.position, point).ToString("F0") + " m");
     }
 

@@ -122,6 +122,37 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &105419025
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 105419026}
+  m_Layer: 0
+  m_Name: Eyes
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &105419026
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 105419025}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.0563762, y: -0.7046091, z: 0.056205094, w: 0.70511603}
+  m_LocalPosition: {x: -0.2850147, y: 0.010995448, z: 0.005027953}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1479150574}
+  m_LocalEulerAnglesHint: {x: 9.132, y: -89.96, z: -0.011}
 --- !u!1 &245031661
 GameObject:
   m_ObjectHideFlags: 0
@@ -343,8 +374,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   head: {fileID: 0}
-  body: {fileID: 0}
-  rear: {fileID: 0}
+  body: {fileID: 1049469787}
+  rear: {fileID: 1640183333}
   headOffset: {x: 0, y: 1, z: 1.1}
   bodyOffset: {x: 0, y: 0.9, z: 0}
   rearOffset: {x: 0, y: 0.9, z: -0.9}
@@ -507,13 +538,14 @@ MonoBehaviour:
   assumeSeenDistance: 15
   suspicionTime: 4
   courseChangeAngle: 45
-  jerkTurnRate: 150
+  jerkTurnRate: 250
+  jerkAwayRate: 500
   closeNoticeRange: 32
   faceOffRange: 32
   unfreezeDelay: 0.7
   reactionDelay: 0.8
   approachAttackSpeed: 1
-  approachAttackTime: 0.5
+  approachGain: 2
   backedAwayTime: 1
   goodMercy: 0.95
   mediumMercy: 0.5
@@ -525,11 +557,17 @@ MonoBehaviour:
   releaseDistance: 25
   backOffGain: 10
   turnAwayGrace: 2
+  bluffConfirm: 1
   mediumEscapeTime: 15
   hiddenTime: 2
-  listenTime: 4
   loudStep: 10
-  coverSearch: {x: 8, y: 18}
+  hearingBoost: 2.5
+  memoryTime: 30
+  memoryWalkSpeed: 0.7
+  refindEscapeTime: 8
+  findsToAttack: 2
+  forgetIgnoreTime: 2
+  coverSearch: {x: 8, y: 25}
   coverRunSpeed: 6
   leaveDistance: 30
   leaveMaxTime: 8
@@ -537,6 +575,26 @@ MonoBehaviour:
   turnSpeed: 180
   repathInterval: 0.25
   logCues: 1
+--- !u!114 &694889834
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0c31d245788a04c65956b578c7955146, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  searchRadius: 10
+  extraPoints: 3
+  lookTime: {x: 2, y: 4}
+  glanceInterval: 1.2
+  speedMultiplier: 1.6
+  walkTimeout: 15
+  redirectCooldown: 2
+  turnSpeed: 90
 --- !u!1 &728657698
 GameObject:
   m_ObjectHideFlags: 0
@@ -630,6 +688,11 @@ Transform:
   m_Children: []
   m_Father: {fileID: 245031662}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!4 &1049469787 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 3575807357880738860, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+  m_PrefabInstance: {fileID: 1863984813222322938}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1102995487
 GameObject:
   m_ObjectHideFlags: 0
@@ -746,7 +809,7 @@ AudioListener:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1116943230}
-  m_Enabled: 1
+  m_Enabled: 0
 --- !u!20 &1116943234
 Camera:
   m_ObjectHideFlags: 0
@@ -891,6 +954,16 @@ Transform:
   m_Children: []
   m_Father: {fileID: 245031662}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!4 &1479150574 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 2930065361696327212, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+  m_PrefabInstance: {fileID: 1863984813222322938}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &1640183333 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 800348695894810731, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+  m_PrefabInstance: {fileID: 1863984813222322938}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1696518140
 GameObject:
   m_ObjectHideFlags: 0
@@ -969,6 +1042,10 @@ PrefabInstance:
       propertyPath: m_AngularSpeed
       value: 60
       objectReference: {fileID: 0}
+    - target: {fileID: 3777444236254580096, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      propertyPath: eyes
+      value: 
+      objectReference: {fileID: 105419026}
     - target: {fileID: 3777444236254580096, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       propertyPath: player
       value: 
@@ -1069,6 +1146,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8831834322413210329, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1116943231}
+    - targetCorrespondingSourceObject: {fileID: 2930065361696327212, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 105419026}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       insertIndex: -1
@@ -1109,6 +1189,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       insertIndex: -1
       addedObject: {fileID: 694889823}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889834}
   m_SourcePrefab: {fileID: 100100000, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

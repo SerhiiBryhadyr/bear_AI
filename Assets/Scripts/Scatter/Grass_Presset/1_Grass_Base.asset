@@ -1,0 +1,54 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
+  m_Name: 1_Grass_Base
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 2085449277718671952, guid: 6629880e46886724fa0107d3035304e6, type: 3}
+    weight: 1
+    sizeFromPreset: 0
+    scaleRange: {x: 1.26, y: 2.41}
+    maxSlope: 40
+    clumped: 0
+  - prefab: {fileID: 8267427934229748759, guid: cce04f533c148314abf74aff71206ec7, type: 3}
+    weight: 0.72
+    sizeFromPreset: 0
+    scaleRange: {x: 0.54, y: 1.05}
+    maxSlope: 40
+    clumped: 0
+  - prefab: {fileID: 4798742950742889349, guid: 5e7ace55a7bfd0d4f9ba3c05024e9d79, type: 3}
+    weight: 1.93
+    sizeFromPreset: 0
+    scaleRange: {x: 1.48, y: 4}
+    maxSlope: 40
+    clumped: 0
+  - prefab: {fileID: 5443344685879028270, guid: 4dfd50a1f648e984f8188be70774f281, type: 3}
+    weight: 1.3
+    sizeFromPreset: 0
+    scaleRange: {x: 1.13, y: 1.52}
+    maxSlope: 40
+    clumped: 0
+  - prefab: {fileID: 1245006558584958560, guid: 7b3e6db10d22f504dbc606110b2cb5e7, type: 3}
+    weight: 1.54
+    sizeFromPreset: 0
+    scaleRange: {x: 1.13, y: 1.52}
+    maxSlope: 40
+    clumped: 0
+  density: 2.2
+  patchiness: 0.5
+  patchSize: 8
+  clumpSize: 4
+  edgeFade: 2
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3
+  maxPerCell: 8

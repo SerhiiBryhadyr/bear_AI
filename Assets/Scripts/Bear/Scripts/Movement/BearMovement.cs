@@ -1,23 +1,37 @@
 using UnityEngine;
 using UnityEngine.AI;
 
+// =====================================================================
+// BearMovement - moves the bear with the NavMeshAgent: where to go,
+// how fast, turning in place. States call it and never touch the
+// agent directly.
+//
+// 14.11: the Animator moved to BearAnimator (one job per script).
+// This script only says HOW the bear moves (speed, sneak); BearAnimator
+// turns that into clips.
+// =====================================================================
 public class BearMovement : MonoBehaviour
 {
     private NavMeshAgent agent;
-
-    private Animator animator;
     private float baseSpeed;          // agent speed from the Inspector
 
     public bool IsMoving => agent != null && agent.velocity.magnitude > 0.1f;
 
-    private void Awake()
-{
-    agent = GetComponent<NavMeshAgent>();
-    animator = GetComponent<Animator>();
+    // Real speed right now, m/s - not the target speed: it grows and
+    // falls with the agent's Acceleration. BearAnimator picks clips by it.
+    public float CurrentSpeed => agent != null ? agent.velocity.magnitude : 0f;
 
-    if (agent != null)
-        baseSpeed = agent.speed;
-}
+    // A state asked for a crouched walk (stalking). BearAnimator shows
+    // it only while the bear is slow enough.
+    public bool Sneaking { get; private set; }
+
+    private void Awake()
+    {
+        agent = GetComponent<NavMeshAgent>();
+
+        if (agent != null)
+            baseSpeed = agent.speed;
+    }
 
     public void MoveTo(Vector3 position)
     {
@@ -73,6 +87,16 @@ public class BearMovement : MonoBehaviour
     }
 
     // ---------------------------------------------------------------
+    // Sneak (14.11): a state turns it on when it starts and off when
+    // it ends - like SetSpeedMultiplier. Only the look changes; the
+    // speed is still set by the state.
+    // ---------------------------------------------------------------
+    public void SetSneak(bool sneak)
+    {
+        Sneaking = sneak;
+    }
+
+    // ---------------------------------------------------------------
     // Turning in place. NavMeshAgent turns the bear only while walking,
     // so standing reactions (stare, after retreat) use these.
     // ---------------------------------------------------------------
@@ -102,10 +126,4 @@ public class BearMovement : MonoBehaviour
 
         return Vector3.Angle(transform.forward, direction) <= maxAngle;
     }
-
-    private void Update()
-{
-    if (animator != null)
-        animator.SetBool("IsMoving", IsMoving);
-}
 }

@@ -276,6 +276,7 @@ public class BearStalkState : BearStateBehaviour
     private void OnEnable()
     {
         Knowledge.SetLoseContactTime(stalkLoseContactTime);
+        Movement.SetSneak(true);      // crouched walk while stalking (BearAnimator, 14.11)
         knownNoticedCount = Knowledge.NoticedCount;
         hasTarget = false;
         arrived = false;
@@ -305,7 +306,10 @@ public class BearStalkState : BearStateBehaviour
             Knowledge.ResetLoseContactTime();
 
         if (Movement != null)
+        {
             Movement.SetSpeedMultiplier(1f);
+            Movement.SetSneak(false);
+        }
     }
 
     // ---------------------------------------------------------------

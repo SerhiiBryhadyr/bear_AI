@@ -545,37 +545,14 @@ MonoBehaviour:
   closeNoticeRange: 32
   faceOffRange: 32
   unfreezeDelay: 0.7
-  reactionDelay: 0.8
-  approachAttackSpeed: 1
-  approachGain: 2
-  backedAwayTime: 1
-  goodMercy: 0.95
-  mediumMercy: 0.5
-  goodWatchTime: {x: 4, y: 7}
-  threatTime: 4
-  mediumFollowTime: 4
-  mediumBluffAttack: 0.5
-  angryHesitation: {x: 3, y: 8}
-  releaseDistance: 25
-  backOffGain: 10
-  turnAwayGrace: 2
-  bluffConfirm: 1
-  mediumEscapeTime: 15
-  hiddenTime: 2
-  loudStep: 10
-  hearingBoost: 2.5
-  memoryTime: 30
-  memoryWalkSpeed: 0.7
-  refindEscapeTime: 8
-  findsToAttack: 2
-  forgetIgnoreTime: 2
   coverSearch: {x: 8, y: 25}
   coverRunSpeed: 6
-  leaveDistance: 30
   leaveMaxTime: 8
   loseContactTime: 15
   turnSpeed: 180
   repathInterval: 0.25
+  warningRoarClip: {fileID: 8300000, guid: e6de7271aefc84905b3f819bb662fee1, type: 3}
+  roarVolume: 1
   logCues: 1
 --- !u!114 &694889834
 MonoBehaviour:
@@ -658,6 +635,47 @@ MonoBehaviour:
   groundBand: 0.05
   popDistance: 0.15
   popAngle: 12
+--- !u!114 &694889848
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc6dd91c313a84ca681105337b5c01a6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  reactionDelay: 0.8
+  approachAttackSpeed: 1
+  approachGain: 2
+  backedAwayTime: 1
+  goodMercy: 0.95
+  mediumMercy: 0.5
+  goodWatchTime: {x: 4, y: 7}
+  threatTime: 4
+  mediumFollowTime: 4
+  mediumBluffAttack: 0.5
+  angryHesitation: {x: 3, y: 8}
+  releaseDistance: 25
+  backOffGain: 10
+  turnAwayGrace: 2
+  bluffConfirm: 1
+  mediumEscapeTime: 15
+  hiddenTime: 2
+  loudStep: 10
+  hearingBoost: 2.5
+  memoryTime: 30
+  memoryWalkSpeed: 0.7
+  refindEscapeTime: 8
+  findsToAttack: 2
+  forgetIgnoreTime: 2
+  leaveDistance: 30
+  leaveMaxTime: 8
+  loseContactTime: 15
+  turnSpeed: 180
+  repathInterval: 0.25
 --- !u!1 &728657698
 GameObject:
   m_ObjectHideFlags: 0
@@ -1712,6 +1730,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       insertIndex: -1
       addedObject: {fileID: 694889847}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889848}
   m_SourcePrefab: {fileID: 100100000, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
 --- !u!4 &1863984813222322939 stripped
 Transform:

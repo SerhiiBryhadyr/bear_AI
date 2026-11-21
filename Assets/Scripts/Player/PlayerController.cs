@@ -6,9 +6,9 @@ public enum MoveMode
     Idle,       // standing still or in the air
     Crouch,     // crouched, any direction
     Walk,       // forward / sideways
-    Run,        // Shift + forward / sideways
+    Run,        // Shift + forward (also W + A / W + D)
     BackWalk,   // S
-    BackStep    // S + Shift (careful retreat)
+    BackStep    // S + Shift or A / D + Shift (careful retreat / careful side step)
 }
 
 public class PlayerController : MonoBehaviour
@@ -27,6 +27,7 @@ public class PlayerController : MonoBehaviour
 
     // Backward movement. S alone - normal step back.
     // S + Shift - careful retreat (watching the bear, D-01).
+    // A / D + Shift without W - a careful side step at the same speed (21.11).
     public float backWalkSpeed = 3f;
     public float backStepSpeed = 2f;
 
@@ -52,8 +53,8 @@ public class PlayerController : MonoBehaviour
     public Transform cameraHolder;
 
     // State flags for other systems (dominance, footstep sounds).
-    // IsRunning     - Shift + moving forward or sideways (not crouched).
-    // IsBackingAway - Shift + moving backward (careful retreat, not crouched).
+    // IsRunning     - Shift + moving forward (not crouched).
+    // IsBackingAway - Shift + moving backward or only sideways (careful retreat / side step, not crouched).
     // IsCrouching   - crouch key held, or forced to stay down (no room above).
     // IsMoving      - player is trying to move this frame.
     public bool IsRunning { get; private set; }
@@ -182,21 +183,29 @@ public class PlayerController : MonoBehaviour
         bool isTryingToMove = move.sqrMagnitude > 0.01f;
         bool isShiftHeld = Input.GetKey(runKey);
         bool isMovingBackward = z < -0.1f;   // S pressed (also S+A / S+D)
+        bool isMovingForward = z > 0.1f;     // W pressed (also W+A / W+D)
 
         IsMoving = isTryingToMove;
 
-        // Shift means "run" only forward/sideways.
-        // Backward, Shift means "retreat carefully" - nobody sprints backward.
+        // Shift means "run" only with W (forward or forward-diagonal).
+        // Backward or only sideways, Shift means "move away carefully" -
+        // nobody sprints backward or sideways, and "move away slowly and
+        // sideways" is the real advice for a bear encounter (21.11: a finger
+        // slipping off S left A + Shift = a sideways sprint at 8 m/s).
         // Crouched, Shift does nothing - crouch has one slow speed.
-        IsRunning = isTryingToMove && isShiftHeld && !isMovingBackward && !IsCrouching;
-        IsBackingAway = isTryingToMove && isShiftHeld && isMovingBackward && !IsCrouching;
+        bool isCarefulStep = isShiftHeld && !IsCrouching && !isMovingForward;
+
+        IsRunning = isTryingToMove && isShiftHeld && isMovingForward && !IsCrouching;
+        IsBackingAway = isTryingToMove && isCarefulStep;
 
         float currentSpeed;
 
         if (IsCrouching)
             currentSpeed = crouchSpeed;
+        else if (isCarefulStep)
+            currentSpeed = backStepSpeed;
         else if (isMovingBackward)
-            currentSpeed = isShiftHeld ? backStepSpeed : backWalkSpeed;
+            currentSpeed = backWalkSpeed;
         else
             currentSpeed = isShiftHeld ? runSpeed : walkSpeed;
 
@@ -205,8 +214,10 @@ public class PlayerController : MonoBehaviour
             CurrentMode = MoveMode.Idle;
         else if (IsCrouching)
             CurrentMode = MoveMode.Crouch;
+        else if (isCarefulStep)
+            CurrentMode = MoveMode.BackStep;
         else if (isMovingBackward)
-            CurrentMode = isShiftHeld ? MoveMode.BackStep : MoveMode.BackWalk;
+            CurrentMode = MoveMode.BackWalk;
         else
             CurrentMode = isShiftHeld ? MoveMode.Run : MoveMode.Walk;
 

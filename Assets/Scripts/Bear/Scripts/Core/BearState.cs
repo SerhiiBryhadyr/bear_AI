@@ -8,5 +8,6 @@ public enum BearState
     Chase,              // mode Knows: the player runs away (added at the end - Inspector values stay)
     Stalk,              // mode Knows: the bear follows the player hidden (D-35, added at the end)
     RearPursuit,        // mode Knows: pattern 1 - pursuit from behind (canon 03, D-52, added at the end)
-    Hunt                // mode Knows: aggressive stalking after a bluff, attack from the side (D-52, added at the end)
+    Hunt,               // mode Knows: aggressive stalking after a bluff, attack from the side (D-52, added at the end)
+    FaceOff             // mode Knows: face-off by mood (D-52); moved out of pattern 1 for D-57 (21.11, added at the end)
 }

@@ -637,7 +637,7 @@ MonoBehaviour:
   animator: {fileID: 0}
   speedDampTime: 0.15
   sizeTimeScale: 0
-  sneakMaxSpeed: 2.5
+  sneakMaxSpeed: 0
   logSpeed: 1
 --- !u!114 &694889847
 MonoBehaviour:
@@ -880,7 +880,7 @@ Camera:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1116943230}
-  m_Enabled: 0
+  m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 1
   m_BackGroundColor: {r: 0, g: 0, b: 0, a: 1}
@@ -1596,6 +1596,18 @@ PrefabInstance:
     - target: {fileID: 8775763409835091190, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: -0.0000567028
+      objectReference: {fileID: 0}
+    - target: {fileID: 8831834322413210329, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.6
+      objectReference: {fileID: 0}
+    - target: {fileID: 8831834322413210329, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 1.6
+      objectReference: {fileID: 0}
+    - target: {fileID: 8831834322413210329, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1.6
       objectReference: {fileID: 0}
     - target: {fileID: 8831834322413210329, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       propertyPath: m_LocalPosition.x

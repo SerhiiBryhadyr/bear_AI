@@ -15,8 +15,8 @@ MonoBehaviour:
   items:
   - prefab: {fileID: 5443344685879028270, guid: c2ea3540012e34bc69fec65c7f363705, type: 3}
     weight: 10
-    sizeFromPreset: 0
-    scaleRange: {x: 0.96, y: 3.28}
+    sizeFromPreset: 1
+    scaleRange: {x: 0.96, y: 2.03}
     maxSlope: 40
     clumped: 0
   density: 1
@@ -27,4 +27,8 @@ MonoBehaviour:
   avoidPathLayer: 0
   pathLayer: {fileID: 0}
   pathThreshold: 0.3
+  avoidObjects: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
   maxPerCell: 8

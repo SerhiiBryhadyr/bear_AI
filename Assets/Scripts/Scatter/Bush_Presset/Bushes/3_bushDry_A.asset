@@ -22,7 +22,7 @@ MonoBehaviour:
     sinkDepth: 0.29
     maxBury: 0.55
     maxSlope: 35
-  density: 2
+  density: 3.7
   treeClearance: 1.2
   avoidColliders: 1
   obstacleLayers:

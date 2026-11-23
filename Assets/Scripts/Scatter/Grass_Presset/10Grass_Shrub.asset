@@ -12,7 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
   m_Name: 10Grass_Shrub
   m_EditorClassIdentifier: 
-  items: []
+  items:
+  - prefab: {fileID: 1565408744048187519, guid: e6fd4411c0e008642b42a086f0d297ca, type: 3}
+    weight: 1
+    sizeFromPreset: 1
+    scaleRange: {x: 0.8, y: 1.2}
+    maxSlope: 40
+    clumped: 0
   density: 1
   patchiness: 0.5
   patchSize: 8

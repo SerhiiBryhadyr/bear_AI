@@ -12,7 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
   m_Name: 9Grass_C
   m_EditorClassIdentifier: 
-  items: []
+  items:
+  - prefab: {fileID: 6846659341408791651, guid: 4c72217d56dcb6749a897a75cad1f34e, type: 3}
+    weight: 1
+    sizeFromPreset: 1
+    scaleRange: {x: 1.17, y: 1.77}
+    maxSlope: 40
+    clumped: 0
   density: 1
   patchiness: 0.5
   patchSize: 8

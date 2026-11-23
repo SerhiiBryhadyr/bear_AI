@@ -16,7 +16,7 @@ MonoBehaviour:
   - prefab: {fileID: 398929321252300881, guid: 4e6885e0d11bd224fa27617a4657c329, type: 3}
     weight: 1
     sizeFromPreset: 1
-    scaleRange: {x: 0.8, y: 1.2}
+    scaleRange: {x: 1.59, y: 2.51}
     maxSlope: 40
     clumped: 0
   density: 1

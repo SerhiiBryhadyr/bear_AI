@@ -55,6 +55,10 @@ public class ScatterPreset : ScriptableObject
     public bool avoidColliders = true;
     public LayerMask obstacleLayers = ~0;
 
+    [Tooltip("Обходити об'єкти інших зон Scatter за їхнім Footprint Radius — працює і без колайдерів. " +
+             "Вимкнути, якщо ці об'єкти мають стояти впритул до чужих (напр. камінці під кущами)")]
+    public bool avoidOtherZones = true;
+
     [Tooltip("Не ставити на шар terrain стежки")]
     public bool avoidPathLayer = false;
     public TerrainLayer pathLayer;

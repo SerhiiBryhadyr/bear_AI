@@ -59,6 +59,12 @@ public class ScatterDetailPreset : ScriptableObject
     public TerrainLayer pathLayer;
     [Range(0f, 1f)] public float pathThreshold = 0.3f;
 
+    [Tooltip("Не садити траву під об'єктами з колайдером або тригером (ручні камені, будинки, кущі, об'єкти інших зон). " +
+             "Перевіряється від землі до 1 м: під мостом трава росте. Персонажі не рахуються")]
+    public bool avoidObjects = true;
+    [Tooltip("Шари об'єктів, під якими траву не садимо. Прибери Foliage, якщо під кущами трава має рости")]
+    public LayerMask obstacleLayers = ~0;
+
     [Header("Лише для terrain у режимі Instance Count")]
     [Tooltip("Скільки травинок у клітинці при густоті 1")]
     [Range(1, 16)] public int maxPerCell = 8;

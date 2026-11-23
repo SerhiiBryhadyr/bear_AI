@@ -77,6 +77,9 @@ public static class ScatterDetailsGenerator
         }
 
         Undo.SetCurrentGroupName("Scatter Grass Generate");
+        Physics.SyncTransforms(); // колайдери об'єктів — на актуальних місцях
+        var hitBuffer = new Collider[16];
+        int blocked = 0;          // клітинок під об'єктами
         Vector2[] poly = PolygonXZ(zone);
         Bounds area = zone.GetBoundsXZ();
         int n = plants.Count;
@@ -113,6 +116,7 @@ public static class ScatterDetailsGenerator
             PathMap path = preset.avoidPathLayer ? PathMap.Read(d, preset.pathLayer, rect) : null;
             Vector3 origin = t.transform.position;
             Vector3 size = d.size;
+            float probe = Mathf.Max(0.15f, size.x / d.detailWidth * 0.4f); // радіус перевірки — трохи менше пів клітинки
 
             for (int z = 0; z < rect.height; z++)
             for (int x = 0; x < rect.width; x++)
@@ -128,6 +132,9 @@ public static class ScatterDetailsGenerator
                 foreach (int[,] layer in layers.Values) layer[z, x] = 0;
 
                 if (path != null && path.Weight(u, v) > preset.pathThreshold) continue;
+
+                // Під об'єктом траву не садимо — лишається «дірка» (стара трава зони тут уже прибрана вище)
+                if (preset.avoidObjects && UnderObject(t, w, probe, preset.obstacleLayers, hitBuffer)) { blocked++; continue; }
 
                 // Частки рослин у клітинці: вага, нахил, купки
                 float slope = Vector3.Angle(d.GetInterpolatedNormal(u, v), Vector3.up);
@@ -176,6 +183,7 @@ public static class ScatterDetailsGenerator
         var sb = new StringBuilder();
         sb.Append($"Засаджено {planted} з {cells} клітинок · режим {(coverage ? "Coverage" : "Instance Count")} · Density {preset.density:0.##}");
         if (added > 0) sb.Append($" · нових копій у terrain: {added}");
+        if (blocked > 0) sb.Append($" · під об'єктами пропущено {blocked} клітинок");
         foreach (Plant pl in plants)
         {
             string fill = pl.cells == 0 ? "—"
@@ -188,6 +196,19 @@ public static class ScatterDetailsGenerator
         sb.Append(Lines(skipped));
         details.lastReport = sb.ToString();
         Debug.Log($"[Scatter] Трава {zone.name}: {details.lastReport}");
+    }
+
+    // ===== Чи стоїть у клітинці об'єкт з колайдером (звичайним або тригером) =====
+    // Перевіряється «стовпчик» від землі до 1 м: міст чи гілки вище траві не заважають.
+    static bool UnderObject(Terrain t, Vector3 w, float radius, LayerMask layers, Collider[] buffer)
+    {
+        float ground = t.SampleHeight(w) + t.transform.position.y;
+        Vector3 bottom = new Vector3(w.x, ground + 0.1f, w.z);
+        int count = Physics.OverlapCapsuleNonAlloc(bottom, bottom + Vector3.up * 0.9f, radius, buffer,
+                                                   layers, QueryTriggerInteraction.Collide);
+        for (int i = 0; i < count; i++)
+            if (ScatterGenerator.IsObstacleCollider(buffer[i])) return true;
+        return false;
     }
 
     static string Lines(List<string> list)
@@ -396,14 +417,25 @@ public static class ScatterDetailsGenerator
         if (string.IsNullOrEmpty(origPath)) { error = "це не префаб із Project"; return null; }
         if (origPath.StartsWith(CopiesFolder + "/")) return original;          // у пресет поклали саму копію
         string guid = AssetDatabase.AssetPathToGUID(origPath);
-        if (copies.TryGetValue(guid, out GameObject existing)) return existing;
+        string path = null;
+        if (copies.TryGetValue(guid, out GameObject existing))
+        {
+            if (!NeedsSingleMaterial(existing)) return existing;
+            path = AssetDatabase.GetAssetPath(existing); // стара копія з кількома матеріалами — перебудуємо на тому самому місці (terrain не загубить посилання)
+        }
 
         if (!FindMesh(original, out MeshFilter mf, out MeshRenderer mr)) { error = "немає меша"; return null; }
         EnsureFolder(CopiesFolder);
-        string path = AssetDatabase.GenerateUniqueAssetPath($"{CopiesFolder}/{CopyPrefix}{SafeName(original.name)}.prefab");
+        if (path == null) path = AssetDatabase.GenerateUniqueAssetPath($"{CopiesFolder}/{CopyPrefix}{SafeName(original.name)}.prefab");
         GameObject saved;
 
-        if (MeshOnRoot(original))
+        if (mr.sharedMaterials.Length > 1)
+        {
+            // Terrain малює рослину лише з ОДНИМ матеріалом — зводимо частини в один (атлас)
+            saved = SaveSingleMaterialCopy(original, mf, mr, path, out note, out error);
+            if (saved == null) return null;
+        }
+        else if (MeshOnRoot(original))
         {
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(original);
             try { saved = PrefabUtility.SaveAsPrefabAsset(instance, path); }
@@ -505,6 +537,219 @@ public static class ScatterDetailsGenerator
         mesh.RecalculateBounds();
         AssetDatabase.CreateAsset(mesh, AssetDatabase.GenerateUniqueAssetPath(path));
         return mesh;
+    }
+
+    // Скільки разів текстура частини може повторюватися, щоб ще класти її в атлас
+    const int MaxAtlasTiles = 16;
+
+    // ===== Чи в копії кілька матеріалів (така в terrain не малюється) =====
+    static bool NeedsSingleMaterial(GameObject copy)
+    {
+        return FindMesh(copy, out _, out MeshRenderer mr) && mr.sharedMaterials.Length > 1;
+    }
+
+    // ===== Копія з ОДНИМ матеріалом для рослини з кількома (terrain малює лише такі) =====
+    // 1. Текстура кожної частини, помножена на колір її матеріалу, кладеться в один атлас (_atlas.png).
+    // 2. UV кожної частини зсуваються на її шматок атласу, частини зливаються в одну (_mesh.asset).
+    // 3. Матеріал — копія того, що має alpha clip (_Cutoff), з атласом і білим кольором (_mat.mat).
+    // Normal map не переноситься. Частина з текстурою, що тайлиться (UV ширше 0–1), — атлас неможливий.
+    static GameObject SaveSingleMaterialCopy(GameObject original, MeshFilter mf, MeshRenderer mr, string path,
+                                             out string note, out string error)
+    {
+        note = ""; error = "";
+        string stem = Path.ChangeExtension(path, null);  // .../SC_<назва>
+        Material[] mats = mr.sharedMaterials;
+        Mesh mesh = Object.Instantiate(mf.sharedMesh);
+        int parts = mesh.subMeshCount;
+        Vector2[] uv = mesh.uv;
+        if (mesh.vertexCount == 0 || uv.Length != mesh.vertexCount)
+        {
+            Object.DestroyImmediate(mesh);
+            error = "меш не читається або без UV — увімкни Read/Write у налаштуваннях моделі";
+            return null;
+        }
+
+        Material baseMat = mats[0];
+        foreach (Material m in mats)
+            if (m != null && m.HasProperty("_Cutoff")) { baseMat = m; break; }
+        if (baseMat == null || !(baseMat.HasProperty("_MainTex") || baseMat.HasProperty("_BaseMap")))
+        {
+            Object.DestroyImmediate(mesh);
+            error = "у шейдері матеріалу немає основної текстури (_MainTex / _BaseMap)";
+            return null;
+        }
+
+        Texture2D atlasAsset = null;
+        string atlasInfo = "один меш, зайві матеріали прибрано";
+        if (parts > 1)
+        {
+            // 1. Межі UV кожної частини. Якщо текстура на частині повторюється (UV, напр., 0–2),
+            //    в атлас кладемо її стільки ж разів поспіль — вигляд не зміниться
+            var tris = new int[parts][];
+            var shift = new Vector2[parts];
+            var tiles = new Vector2Int[parts];
+            var tileInfo = new List<string>();
+            for (int s = 0; s < parts; s++)
+            {
+                tiles[s] = Vector2Int.one;
+                tris[s] = mesh.GetTriangles(s);
+                if (tris[s].Length == 0) continue;
+                Vector2 min = Vector2.positiveInfinity, max = Vector2.negativeInfinity;
+                foreach (int i in tris[s]) { min = Vector2.Min(min, uv[i]); max = Vector2.Max(max, uv[i]); }
+                shift[s] = new Vector2(Mathf.Floor(min.x + 0.001f), Mathf.Floor(min.y + 0.001f));
+                tiles[s] = new Vector2Int(Mathf.Max(1, Mathf.CeilToInt(max.x - shift[s].x - 0.001f)),
+                                          Mathf.Max(1, Mathf.CeilToInt(max.y - shift[s].y - 0.001f)));
+                string range = $"UV {min.x:0.##}…{max.x:0.##} × {min.y:0.##}…{max.y:0.##}";
+                if (tiles[s].x * tiles[s].y > MaxAtlasTiles)
+                {
+                    Object.DestroyImmediate(mesh);
+                    error = $"частина {s} ({MatName(mats, s)}): {range} — текстура повторюється {tiles[s].x}×{tiles[s].y} разів, для атласу забагато (максимум {MaxAtlasTiles})";
+                    return null;
+                }
+                if (tiles[s] != Vector2Int.one) tileInfo.Add($"{MatName(mats, s)} — повтор {tiles[s].x}×{tiles[s].y} ({range})");
+            }
+
+            // 2. Атлас із текстур частин (з кольором матеріалу)
+            var pics = new Texture2D[parts];
+            for (int s = 0; s < parts; s++) pics[s] = TintedCopy(mats[Mathf.Min(s, mats.Length - 1)], tiles[s]);
+            var atlas = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            Rect[] rects = atlas.PackTextures(pics, 4, 2048, false);
+            string atlasPath = AssetDatabase.GenerateUniqueAssetPath(stem + "_atlas.png");
+            File.WriteAllBytes(atlasPath, atlas.EncodeToPNG());
+            atlasInfo = $"атлас {atlas.width}×{atlas.height} з {parts} частин" + (tileInfo.Count > 0 ? "; " + string.Join("; ", tileInfo) : "");
+            foreach (Texture2D p in pics) Object.DestroyImmediate(p);
+            Object.DestroyImmediate(atlas);
+
+            AssetDatabase.ImportAsset(atlasPath);
+            var ti = (TextureImporter)AssetImporter.GetAtPath(atlasPath);
+            ti.sRGBTexture = true;
+            ti.alphaIsTransparency = true;   // колір «підтікає» в прозорі краї — без світлої обводки
+            ti.mipmapEnabled = true;
+            ti.wrapMode = TextureWrapMode.Clamp;
+            ti.maxTextureSize = 2048;
+            ti.SaveAndReimport();
+            atlasAsset = AssetDatabase.LoadAssetAtPath<Texture2D>(atlasPath);
+
+            // 3. UV → шматок атласу; частини → одна
+            var owner = new int[uv.Length];
+            for (int i = 0; i < owner.Length; i++) owner[i] = -1;
+            var all = new List<int>();
+            for (int s = 0; s < parts; s++)
+            {
+                foreach (int i in tris[s])
+                {
+                    if (owner[i] == s) continue;
+                    if (owner[i] >= 0)
+                    {
+                        Object.DestroyImmediate(mesh);
+                        error = "дві частини меша мають спільні вершини — атлас неможливий";
+                        return null;
+                    }
+                    owner[i] = s;
+                    Vector2 local = uv[i] - shift[s];
+                    local = new Vector2(local.x / tiles[s].x, local.y / tiles[s].y); // повтори текстури вже в атласі
+                    uv[i] = new Vector2(rects[s].x + local.x * rects[s].width, rects[s].y + local.y * rects[s].height);
+                }
+                all.AddRange(tris[s]);
+            }
+            mesh.uv = uv;
+            mesh.subMeshCount = 1;
+            mesh.SetTriangles(all, 0);
+            mesh.RecalculateBounds();
+        }
+
+        // Меш у файл (якщо частина зсунута відносно кореня — з урахуванням зсуву, як у звичайній копії)
+        string meshPath = AssetDatabase.GenerateUniqueAssetPath(stem + "_mesh.asset");
+        Matrix4x4 m2 = original.transform.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+        Mesh meshAsset;
+        if (IsIdentity(m2))
+        {
+            mesh.name = Path.GetFileNameWithoutExtension(meshPath);
+            AssetDatabase.CreateAsset(mesh, meshPath);
+            meshAsset = mesh;
+        }
+        else
+        {
+            meshAsset = BakeMesh(mesh, m2, meshPath, out error);
+            Object.DestroyImmediate(mesh);
+            if (meshAsset == null) return null;
+        }
+
+        // Один матеріал
+        var mat = new Material(baseMat) { name = Path.GetFileName(stem) + "_mat" };
+        if (atlasAsset != null)
+        {
+            mat.mainTexture = atlasAsset;
+            if (mat.HasProperty("_Color") || mat.HasProperty("_BaseColor")) mat.color = Color.white; // колір уже в атласі
+            if (mat.HasProperty("_BumpMap")) { mat.SetTexture("_BumpMap", null); mat.DisableKeyword("_NORMALMAP"); }
+        }
+        mat.enableInstancing = true;
+        AssetDatabase.CreateAsset(mat, AssetDatabase.GenerateUniqueAssetPath(stem + "_mat.mat"));
+
+        GameObject saved;
+        var go = new GameObject(Path.GetFileNameWithoutExtension(path));
+        try
+        {
+            go.AddComponent<MeshFilter>().sharedMesh = meshAsset;
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            saved = PrefabUtility.SaveAsPrefabAsset(go, path);
+        }
+        finally { Object.DestroyImmediate(go); }
+
+        var names = new List<string>();
+        foreach (Material m in mats) names.Add(m != null ? m.name : "—");
+        note = $" · копія {Path.GetFileName(path)} з одним матеріалом: {atlasInfo} ({string.Join(", ", names)}), основа — {baseMat.name}, normal map не переноситься";
+        return saved;
+    }
+
+    static string MatName(Material[] mats, int s)
+    {
+        Material m = mats[Mathf.Min(s, mats.Length - 1)];
+        return m != null ? m.name : "без матеріалу";
+    }
+
+    // Текстура матеріалу, придатна для читання (через RenderTexture — працює і з нечитабельними), × колір матеріалу;
+    // tiles — скільки разів повторити її по X і Y (якщо на моделі вона тайлиться)
+    static Texture2D TintedCopy(Material m, Vector2Int tiles)
+    {
+        Texture tex = m != null ? m.mainTexture : null;
+        Color tint = m != null && (m.HasProperty("_Color") || m.HasProperty("_BaseColor")) ? m.color : Color.white;
+        int w = tex != null ? tex.width : 4, h = tex != null ? tex.height : 4;
+        var copy = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        Color32[] px;
+        if (tex != null)
+        {
+            RenderTexture rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            RenderTexture prev = RenderTexture.active;
+            Graphics.Blit(tex, rt);
+            RenderTexture.active = rt;
+            copy.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+            px = copy.GetPixels32();
+        }
+        else
+        {
+            px = new Color32[w * h];
+            for (int i = 0; i < px.Length; i++) px[i] = new Color32(255, 255, 255, 255);
+        }
+        for (int i = 0; i < px.Length; i++)
+            px[i] = new Color32((byte)(px[i].r * tint.r), (byte)(px[i].g * tint.g), (byte)(px[i].b * tint.b), (byte)(px[i].a * tint.a));
+
+        if (tiles.x > 1 || tiles.y > 1)
+        {
+            int tw = w * tiles.x, th = h * tiles.y;
+            var big = new Color32[tw * th];
+            for (int y = 0; y < th; y++)
+            for (int x = 0; x < tw; x++)
+                big[y * tw + x] = px[(y % h) * w + (x % w)];
+            Object.DestroyImmediate(copy);
+            copy = new Texture2D(tw, th, TextureFormat.RGBA32, false);
+            px = big;
+        }
+        copy.SetPixels32(px);
+        copy.Apply();
+        return copy;
     }
 
     // ===== Префаби пресету: оригінали + наявні копії (для очищення зони) =====

@@ -10,13 +10,13 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
-  m_Name: 3Grass_szablon
+  m_Name: 4Grass_Papor
   m_EditorClassIdentifier: 
   items:
-  - prefab: {fileID: 5443344685879028270, guid: c2ea3540012e34bc69fec65c7f363705, type: 3}
-    weight: 10
+  - prefab: {fileID: 2085449277718671952, guid: 6629880e46886724fa0107d3035304e6, type: 3}
+    weight: 1
     sizeFromPreset: 0
-    scaleRange: {x: 0.96, y: 3.28}
+    scaleRange: {x: 0.93, y: 1.68}
     maxSlope: 40
     clumped: 0
   density: 1

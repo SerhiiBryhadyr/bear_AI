@@ -12,7 +12,7 @@ public static class ScatterGenerator
     // Лічильники для підсумку в Console
     class Stats
     {
-        public int placed, crowded, tree, slope, curve, path, obstacle, noGround, partsHidden;
+        public int placed, crowded, otherZone, tree, slope, curve, path, obstacle, noGround, partsHidden;
     }
 
     // Уже поставлений об'єкт: де стоїть і скільки місця займає
@@ -60,6 +60,9 @@ public static class ScatterGenerator
         treeArea.Expand(new Vector3(margin, 0f, margin));
         List<Vector3> trees = ScatterTerrain.GetTreesInBounds(treeArea);
 
+        // Місця, які вже зайняли об'єкти інших зон (кущі, камені з інших пресетів)
+        List<Placed> others = preset.avoidOtherZones ? CollectOtherZones(zone, area, maxRadius) : new List<Placed>();
+
         int target = Mathf.Max(1, Mathf.RoundToInt(zone.AreaXZ() / 100f * preset.density));
         int maxAttempts = target * AttemptsPerObject;
 
@@ -76,6 +79,7 @@ public static class ScatterGenerator
             bool drape = item.fitMode == ScatterFitMode.Drape;
 
             if (TooClose(p, item.footprintRadius, placed)) { stats.crowded++; continue; }
+            if (TooClose(p, item.footprintRadius, others)) { stats.otherZone++; continue; } // чужа зона: та сама сума радіусів
             float treeDistance = preset.treeClearance + (drape ? 0f : item.footprintRadius * 0.5f); // у Drape дерева перевіряє кожна частина
             if (NearTree(p, treeDistance, trees)) { stats.tree++; continue; }
             if (!ScatterTerrain.SampleGround(p, out float h, out Vector3 normal)) { stats.noGround++; continue; }
@@ -105,7 +109,7 @@ public static class ScatterGenerator
         Undo.CollapseUndoOperations(undoGroup);
 
         Debug.Log($"[Scatter] {zone.name}: поставлено {stats.placed} з {target} (площа {zone.AreaXZ():0} м²). " +
-                  $"Відкинуто: тіснота {stats.crowded}, дерева {stats.tree}, схил {stats.slope}, заокруглення {stats.curve}, " +
+                  $"Відкинуто: тіснота {stats.crowded}, інші зони {stats.otherZone}, дерева {stats.tree}, схил {stats.slope}, заокруглення {stats.curve}, " +
                   $"стежка {stats.path}, колайдери {stats.obstacle}, поза terrain {stats.noGround}. Вимкнено частин груп: {stats.partsHidden}");
     }
 
@@ -155,6 +159,44 @@ public static class ScatterGenerator
         return false;
     }
 
+    // ===== Об'єкти інших зон: кожен займає коло свого Footprint Radius (як «дірка» в NavMesh) =====
+    // Працює без колайдерів. Радіус — з пресета тієї зони; якщо префаба там уже немає — з розміру мешів.
+    static List<Placed> CollectOtherZones(ScatterZone zone, Bounds area, float maxRadius)
+    {
+        var result = new List<Placed>();
+        foreach (ScatterZone other in Object.FindObjectsOfType<ScatterZone>()) // лише активні зони
+        {
+            if (other == zone) continue;
+            Transform group = other.transform.Find(ScatterZone.GeneratedName);
+            if (group == null) continue;
+            foreach (Transform obj in group) // кожен поставлений об'єкт (група Drape — цілою)
+            {
+                if (!obj.gameObject.activeInHierarchy) continue;
+                float r = OtherZoneRadius(obj.gameObject, other.preset);
+                Vector3 p = obj.position; // де стоїть зараз, навіть якщо пересунули вручну
+                float m = maxRadius + r;  // далі цього від контуру — нічому не заважає
+                if (p.x < area.min.x - m || p.x > area.max.x + m || p.z < area.min.z - m || p.z > area.max.z + m) continue;
+                result.Add(new Placed(p, r));
+            }
+        }
+        return result;
+    }
+
+    static float OtherZoneRadius(GameObject obj, ScatterPreset preset)
+    {
+        GameObject source = PrefabUtility.GetCorrespondingObjectFromSource(obj);
+        if (preset != null && source != null)
+            foreach (ScatterItem item in preset.items)
+                if (item.prefab == source) return item.footprintRadius;
+
+        // Запасний варіант: пів ширини мешів, якщо дивитися згори
+        Renderer[] renderers = obj.GetComponentsInChildren<Renderer>();
+        if (renderers.Length == 0) return 1f;
+        Bounds b = renderers[0].bounds;
+        foreach (Renderer r in renderers) b.Encapsulate(r.bounds);
+        return Mathf.Max(b.extents.x, b.extents.z);
+    }
+
     static bool NearTree(Vector3 p, float distance, List<Vector3> trees)
     {
         foreach (Vector3 t in trees)
@@ -162,18 +204,30 @@ public static class ScatterGenerator
         return false;
     }
 
-    // Чи є поруч чужий колайдер (береза-префаб, ручна група, інша зона). Terrain і наші нові об'єкти не рахуються.
+    // Чи є поруч чужий колайдер (ручний об'єкт, береза-префаб, інша зона) — звичайний або тригер (кущі на Foliage).
+    // Terrain, персонажі й наші нові об'єкти не рахуються.
     static bool HitsObstacle(Vector3 p, float radius, LayerMask layers, Transform ownRoot)
     {
         Collider[] hits = Physics.OverlapCapsule(p + Vector3.up * 0.2f, p + Vector3.up * 2f,
-                                                 Mathf.Max(radius, 0.3f), layers, QueryTriggerInteraction.Ignore);
+                                                 Mathf.Max(radius, 0.3f), layers, QueryTriggerInteraction.Collide);
         foreach (Collider c in hits)
         {
-            if (c is TerrainCollider) continue;
+            if (!IsObstacleCollider(c)) continue;
             if (c.transform.IsChildOf(ownRoot)) continue;
             return true;
         }
         return false;
+    }
+
+    // ===== Чи колайдер — перешкода для Scatter (і для об'єктів, і для трави) =====
+    // Будь-який об'єкт сцени зі звичайним колайдером або тригером. Не рахуються terrain
+    // і персонажі (гравець — CharacterController, ведмідь — NavMeshAgent): вони рухаються, «дірки» під ними не потрібні.
+    public static bool IsObstacleCollider(Collider c)
+    {
+        if (c is TerrainCollider) return false;
+        if (c.GetComponentInParent<CharacterController>() != null) return false;
+        if (c.GetComponentInParent<UnityEngine.AI.NavMeshAgent>() != null) return false;
+        return true;
     }
 
     static float DistXZ(Vector3 a, Vector3 b)

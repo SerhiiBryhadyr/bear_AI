@@ -10,16 +10,16 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
-  m_Name: grass1
+  m_Name: 8Grass_blue_flover
   m_EditorClassIdentifier: 
   items:
-  - prefab: {fileID: 1245006558584958560, guid: 7b3e6db10d22f504dbc606110b2cb5e7, type: 3}
+  - prefab: {fileID: 5110047723870728626, guid: 9c5d7d017048d48f6bc093cb0650537f, type: 3}
     weight: 1
     sizeFromPreset: 0
-    scaleRange: {x: 1.52, y: 2.83}
+    scaleRange: {x: 0.42, y: 0.85}
     maxSlope: 40
     clumped: 0
-  density: 1
+  density: 0.36
   patchiness: 0.5
   patchSize: 8
   clumpSize: 4
@@ -27,4 +27,8 @@ MonoBehaviour:
   avoidPathLayer: 0
   pathLayer: {fileID: 0}
   pathThreshold: 0.3
+  avoidObjects: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
   maxPerCell: 8

@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
+  m_Name: 1Grass_A
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 398929321252300881, guid: 4e6885e0d11bd224fa27617a4657c329, type: 3}
+    weight: 1
+    sizeFromPreset: 1
+    scaleRange: {x: 0.8, y: 1.2}
+    maxSlope: 40
+    clumped: 0
+  density: 1
+  patchiness: 0.5
+  patchSize: 8
+  clumpSize: 4
+  edgeFade: 2
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3
+  avoidObjects: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  maxPerCell: 8

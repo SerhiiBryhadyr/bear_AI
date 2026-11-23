@@ -10,16 +10,19 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
-  m_Name: Grass_szablon
+  m_Name: 5grass_fiolet
   m_EditorClassIdentifier: 
   items:
-  - prefab: {fileID: 1245006558584958560, guid: 7b3e6db10d22f504dbc606110b2cb5e7, type: 3}
+  - prefab: {fileID: 8267427934229748759, guid: cce04f533c148314abf74aff71206ec7, type: 3}
     weight: 1
-    scaleRange: {x: 0.8, y: 1.2}
+    sizeFromPreset: 0
+    scaleRange: {x: 0.15, y: 0.53}
     maxSlope: 40
+    clumped: 0
   density: 1
   patchiness: 0.5
   patchSize: 8
+  clumpSize: 4
   edgeFade: 2
   avoidPathLayer: 0
   pathLayer: {fileID: 0}

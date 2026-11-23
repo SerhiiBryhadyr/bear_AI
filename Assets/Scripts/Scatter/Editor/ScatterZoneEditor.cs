@@ -88,7 +88,11 @@ public class ScatterZoneEditor : Editor
     void BeforeSceneGUI(SceneView view)
     {
         if (target == null) return;
-        HandleMouse((ScatterZone)target, Event.current);
+        var zone = (ScatterZone)target;
+        // Мишку обробляє лише активна (виділена) зона. Інакше її може «перехопити» зона,
+        // відкрита в іншому Inspector (заблокованому замочком чи у вікні Properties)
+        if (Selection.activeGameObject != zone.gameObject) return;
+        HandleMouse(zone, Event.current);
     }
 
     // Заливка, лінія контуру і точки-ручки
@@ -96,6 +100,7 @@ public class ScatterZoneEditor : Editor
     {
         if (target == null) return;
         var zone = (ScatterZone)target;
+        if (!Selection.Contains(zone.gameObject)) return; // контур малюємо лише для виділених зон
 
         if (lassoDrawing && Mode == DrawMode.Rectangle)
         {

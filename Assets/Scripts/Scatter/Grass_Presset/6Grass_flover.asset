@@ -10,16 +10,16 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c700d1c796d3e452f81facc29fa27fbb, type: 3}
-  m_Name: grass2_Papor
+  m_Name: 6Grass_flover
   m_EditorClassIdentifier: 
   items:
-  - prefab: {fileID: 2085449277718671952, guid: 6629880e46886724fa0107d3035304e6, type: 3}
+  - prefab: {fileID: 747127095119613554, guid: 88541542137304eb98b6395ce1f87e89, type: 3}
     weight: 1
     sizeFromPreset: 0
-    scaleRange: {x: 0.93, y: 1.68}
+    scaleRange: {x: 0.8, y: 1.2}
     maxSlope: 40
     clumped: 0
-  density: 1
+  density: 0.36
   patchiness: 0.5
   patchSize: 8
   clumpSize: 4
@@ -27,4 +27,8 @@ MonoBehaviour:
   avoidPathLayer: 0
   pathLayer: {fileID: 0}
   pathThreshold: 0.3
+  avoidObjects: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
   maxPerCell: 8

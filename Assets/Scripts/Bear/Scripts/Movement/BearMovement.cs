@@ -77,6 +77,22 @@ public class BearMovement : MonoBehaviour
         agent.speed = baseSpeed * multiplier;
     }
 
+    // ---------------------------------------------------------------
+    // Braking (25.11): not faster than maxSpeed right now - the agent's
+    // own Acceleration (8) would brake too late, so the velocity is cut
+    // here, frame by frame, by the caller's braking curve.
+    // ---------------------------------------------------------------
+    public void LimitSpeed(float maxSpeed)
+    {
+        if (agent == null)
+            return;
+
+        agent.speed = maxSpeed;
+        Vector3 velocity = agent.velocity;
+        if (velocity.magnitude > maxSpeed)
+            agent.velocity = velocity.normalized * maxSpeed;
+    }
+
     // Exact speed in m/s (chase). SetSpeedMultiplier(1) returns to normal.
     public void SetSpeed(float metersPerSecond)
     {

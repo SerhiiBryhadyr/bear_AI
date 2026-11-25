@@ -56,6 +56,12 @@ public enum ContactSource
 //    not to search. MarkNoticed() - a state that is SURE it was seen
 //    (close behind on a path) sets the opinion directly.
 //
+// 7. Close encounter (D-75): UnseenBeforeSight - how long the bear had
+//    not seen him when this sight began (a long gap = it is startled);
+//    the SightStarted event fires when the bear starts seeing him.
+//    StopIgnoring() - the player crossed the boundary while the bear was
+//    letting him go (BearBoundaries): the ignoring ends at once.
+//
 // Mode changes are announced by the ModeChanged event (BearBrain
 // listens). Runs after BearAI / BearStateMachine and before the states,
 // so states read fresh data every frame.
@@ -116,6 +122,11 @@ public class BearKnowledge : MonoBehaviour
     public Vector3 PlayerLookDirection { get; private set; }
     public float TimeSinceSeen => hasSeen ? Time.time - lastSeenTime : float.PositiveInfinity;
 
+    // D-75: how long the bear had NOT seen him when the current (or the
+    // last) sight began; time spent letting him go does not count.
+    // Never seen before = infinity.
+    public float UnseenBeforeSight { get; private set; } = float.PositiveInfinity;
+
     // D-16 / D-42: the bear's OPINION "the player has noticed me" - not
     // the truth (that is PlayerSightOfBear on the player).
     public bool BelievesNoticed { get; private set; }
@@ -143,6 +154,7 @@ public class BearKnowledge : MonoBehaviour
     // --- Events (BearBrain listens) ---
     public event Action<KnowledgeMode, KnowledgeMode> ModeChanged;  // (old, new)
     public event Action<SoundEvent> SoundClue;                      // distant sound in mode Unknown
+    public event Action SightStarted;                               // D-75: the bear starts seeing him (after the mode change)
 
     private BearVision vision;
     private PlayerAwareness playerAwareness;
@@ -173,18 +185,19 @@ public class BearKnowledge : MonoBehaviour
     // ---------------------------------------------------------------
     private void Update()
     {
+        bool wasSeeing = IsSeeingPlayer;
         IsSeeingPlayer = !IsIgnoringPlayer && vision != null && vision.CanSeePlayer();
+        bool sightStarted = IsSeeingPlayer && !wasSeeing;
+
+        // D-75: measured before this frame counts as "seen". While it was
+        // letting him go it knew he was there - that time is no gap (a bear
+        // is not startled by the one it has just let go, test 24.11).
+        if (sightStarted)
+            UnseenBeforeSight = Mathf.Min(TimeSinceSeen, Time.time - ignoreUntil);
 
         if (IsSeeingPlayer)
         {
-            LastKnownVelocity = ReadPlayerVelocity();
-            LastSeenPosition = vision.player.position;
-            PlayerLookDirection = Flat(vision.player.forward).normalized;
-            lastSeenTime = Time.time;
-            hasSeen = true;
-
-            RegisterContact(vision.player.position, ContactSource.Vision);
-            UpdateNoticedBelief();
+            ReadSight();
         }
         else
         {
@@ -193,11 +206,29 @@ public class BearKnowledge : MonoBehaviour
 
         FadeNoticedBelief();
 
+        // After the mode change (BearBrain has already chosen a state).
+        if (sightStarted)
+            SightStarted?.Invoke();
+
         if (!IsSeeingPlayer && Mode == KnowledgeMode.Knows && TimeSinceContact >= CurrentLoseContactTime)
         {
             SetMode(KnowledgeMode.Unknown,
                 "lost: no sight and no sound for " + CurrentLoseContactTime + " s, last point " + LastKnownPosition);
         }
+    }
+
+    // What the eyes give while the bear sees him: where he is, how he
+    // moves, where he looks; the contact and the opinion D-16.
+    private void ReadSight()
+    {
+        LastKnownVelocity = ReadPlayerVelocity();
+        LastSeenPosition = vision.player.position;
+        PlayerLookDirection = Flat(vision.player.forward).normalized;
+        lastSeenTime = Time.time;
+        hasSeen = true;
+
+        RegisterContact(vision.player.position, ContactSource.Vision);
+        UpdateNoticedBelief();
     }
 
     // ---------------------------------------------------------------
@@ -274,6 +305,25 @@ public class BearKnowledge : MonoBehaviour
             SetMode(KnowledgeMode.Unknown, text);
         else
             Debug.Log("[Knowledge] " + text);
+    }
+
+    // D-75: the player walked at the bear while it was letting him go
+    // (BearBoundaries). The ignoring ends at once. The caller has ALREADY
+    // switched the state (attack / face-off); if the bear sees him, the
+    // contact starts in this same frame (BearBrain keeps that state).
+    public void StopIgnoring(string reason)
+    {
+        if (!IsIgnoringPlayer)
+            return;
+
+        ignoreUntil = -999f;
+        Debug.Log("[Knowledge] stops ignoring the player: " + reason);
+
+        if (vision != null && vision.CanSeePlayer())
+        {
+            IsSeeingPlayer = true;      // next frame is not a "new sight"
+            ReadSight();
+        }
     }
 
     // D-52: close behind on a path the bear is SURE the player saw it

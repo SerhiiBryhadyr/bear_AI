@@ -53,7 +53,8 @@ using UnityEngine.AI;
 //    the player quietly walked on, and lost him). Nothing there ->
 //    BearKnowledge loses the player after stalkLoseContactTime ->
 //    SearchLastKnown.
-// 6. Spotted (D-42, simplified): close -> Encounter (Tracking); far ->
+// 6. Spotted (D-42, simplified): close -> FACE-OFF by mood (24.11; was
+//    the old Encounter - Tracking by dominance); far ->
 //    stands and reads the player: he runs -> "he saw me" -> follows
 //    faster and closer, still hidden; he walks on -> "he did not see
 //    me". BearKnowledge forgets being spotted after ~10 s (D-43).
@@ -125,7 +126,10 @@ public class BearStalkState : BearStateBehaviour
     [Header("Freeze")]
     [Tooltip("The bear sees the player looking within this angle (deg) of it -> stands still.")]
     public float freezeViewAngle = 50f;
+    [Tooltip("Sees him look away -> moves again after this (s).")]
     public float unfreezeDelay = 0.5f;
+    [Tooltip("Lost sight of him while frozen -> it cannot know if he still looks, stays still this long after his last look (s). In bushes sight flickers; with 0.5 s it went stop-go-stop (25.11).")]
+    public float unfreezeBlindDelay = 2f;
 
     [Header("Without sight (D-44)")]
     [Tooltip("No contact at all - no sight and no sound - this long (s) -> the bear peeks out to find the player again.")]
@@ -143,7 +147,7 @@ public class BearStalkState : BearStateBehaviour
     public float peekLookTime = 2f;
 
     [Header("Spotted (D-42, simplified)")]
-    [Tooltip("Spotted closer than this, or the player walks toward the bear this close -> Encounter (Tracking), m.")]
+    [Tooltip("Spotted closer than this, or the player walks toward the bear this close -> face-off by mood (BearFaceOffState), m.")]
     public float encounterDistance = 20f;
     [Tooltip("While it believes it is spotted, hiding places are at least this far (m). Tracking lets the player go at 25 m.")]
     public float spottedMinDistance = 25f;
@@ -202,6 +206,7 @@ public class BearStalkState : BearStateBehaviour
     private BearVision vision;
     private BearPlayerAnalysis analysis;
     private BearRearPursuitState rearPursuit;
+    private BearFaceOffState faceOff;
     private BearBodyPoints bodyPoints;
     private CharacterController playerBody;
 
@@ -209,7 +214,6 @@ public class BearStalkState : BearStateBehaviour
     private float phaseTimer;
     private float repickTimer;
     private float checkTimer;
-    private float freezeReleaseTimer;
     private int pauseSkips;             // pause checks skipped in the open during this walk
 
     private bool hasTarget;
@@ -259,6 +263,7 @@ public class BearStalkState : BearStateBehaviour
     private float pursuitUntil = -999f;
 
     private float usedChoiceTime = -999f;   // the analysis choice already used (kept between stalkings)
+    private float patternPauseUntil = -999f; // D-75: no pattern until then (kept between stalkings)
     private float lastWatchedTime = -999f;  // the last moment the player looked the bear's way
 
     // ---------------------------------------------------------------
@@ -271,6 +276,17 @@ public class BearStalkState : BearStateBehaviour
         analysis = GetComponent<BearPlayerAnalysis>();
         rearPursuit = GetComponent<BearRearPursuitState>();
         bodyPoints = GetComponent<BearBodyPoints>();
+        faceOff = GetComponent<BearFaceOffState>();
+    }
+
+    // ---------------------------------------------------------------
+    // D-75: after a close encounter the bear stays near but does not
+    // press - no pattern for this long (BearCloseEncounterState).
+    // ---------------------------------------------------------------
+    public void PausePatterns(float seconds, string reason)
+    {
+        patternPauseUntil = Mathf.Max(patternPauseUntil, Time.time + seconds);
+        Debug.Log("[Stalk] patterns wait " + seconds.ToString("F0") + " s (" + reason + ")");
     }
 
     private void OnEnable()
@@ -387,8 +403,8 @@ public class BearStalkState : BearStateBehaviour
         {
             if (distance <= encounterDistance)
             {
-                Debug.Log("[Stalk] spotted at " + distance.ToString("F0") + " m - too close to hide: ENCOUNTER");
-                ChangeState(BearState.Tracking);
+                Debug.Log("[Stalk] spotted at " + distance.ToString("F0") + " m - too close to hide: FACE-OFF");
+                ToFaceOff(distance, "stalking - spotted at " + distance.ToString("F0") + " m");
                 return true;
             }
 
@@ -403,12 +419,26 @@ public class BearStalkState : BearStateBehaviour
         // It believes it is spotted and the player walks right at it.
         if (Knowledge.BelievesNoticed && Knowledge.IsSeeingPlayer && distance <= encounterDistance && PlayerComesToMe())
         {
-            Debug.Log("[Stalk] the player comes toward the bear (" + distance.ToString("F0") + " m) - ENCOUNTER");
-            ChangeState(BearState.Tracking);
+            Debug.Log("[Stalk] the player comes toward the bear (" + distance.ToString("F0") + " m) - FACE-OFF");
+            ToFaceOff(distance, "stalking - he comes toward the bear, " + distance.ToString("F0") + " m");
             return true;
         }
 
         return false;
+    }
+
+    // Spotted close (24.11): the face-off by mood decides - the same one
+    // as after a close encounter. No BearFaceOffState -> the old Encounter.
+    private void ToFaceOff(float distance, string why)
+    {
+        if (faceOff == null)
+        {
+            ChangeState(BearState.Tracking);
+            return;
+        }
+
+        faceOff.Begin(distance, why);
+        ChangeState(BearState.FaceOff);
     }
 
     private bool PlayerComesToMe()
@@ -445,14 +475,19 @@ public class BearStalkState : BearStateBehaviour
         if (phaseTimer > 0f)
             return;
 
-        Debug.Log("[Stalk] the player walks on - he probably did not see me");
+        // 25.11: the text said "walks on" even when he stood still or the
+        // bear had lost sight of him - the decision is only "he does not run".
+        Debug.Log("[Stalk] read: he does not run (" + (Knowledge.IsSeeingPlayer
+            ? Knowledge.LastKnownVelocity.magnitude.ToString("F1") + " m/s" : "out of sight") +
+            ") - he probably did not see me, stalks on");
         hasTarget = false;
         StartWalk();
     }
 
     // ---------------------------------------------------------------
     // Freeze: the bear SEES the player looking its way -> stands still
-    // until he looks away (+ unfreezeDelay).
+    // until he looks away (+ unfreezeDelay; + unfreezeBlindDelay when
+    // it does not see him at all - 25.11).
     // ---------------------------------------------------------------
     private bool UpdateFreeze()
     {
@@ -472,15 +507,14 @@ public class BearStalkState : BearStateBehaviour
                     Debug.Log("[Stalk] FREEZE: the player looks this way");
             }
 
-            freezeReleaseTimer = unfreezeDelay;
             return true;
         }
 
         if (phase != Phase.Freeze)
             return false;
 
-        freezeReleaseTimer -= Time.deltaTime;
-        if (freezeReleaseTimer > 0f)
+        float wait = Knowledge.IsSeeingPlayer ? unfreezeDelay : unfreezeBlindDelay;
+        if (Time.time - lastWatchedTime < wait)
             return true;
 
         StartWalk();
@@ -521,6 +555,9 @@ public class BearStalkState : BearStateBehaviour
 
         if (rearPursuit != null && rearPursuit.TimeSinceEnded < patternCooldown)
             return false;                                   // pause between patterns
+
+        if (Time.time < patternPauseUntil)
+            return false;                                   // after a close encounter (D-75)
 
         if (Time.time - lastWatchedTime < patternAfterLook)
             return false;                                   // he has just looked its way

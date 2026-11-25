@@ -13,6 +13,14 @@ using UnityEngine;
 //                           search for the one it has let go)
 //   distant sound (Unknown): InvestigateSound
 //                           (later: reaction variants of D-12)
+//   first sight close by  : BearCloseEncounterState (D-75) - it decides
+//                           itself whether it applies (distance,
+//                           startled). Also when the bear heard him very
+//                           close (D-19) and SAW him within
+//                           heardThenSawWindow: still a surprise.
+//   Knows while Chase / FaceOff run: those states keep going (the
+//                           contact came back because BearBoundaries
+//                           ended the ignoring, D-75).
 //
 // Transitions INSIDE a mode (Idle <-> Patrol, X -> Y -> Z -> Patrol,
 // Stalk <-> Tracking <-> Chase) stay in the states themselves - they
@@ -41,6 +49,10 @@ public class BearBrain : MonoBehaviour
     [Tooltip("And only if at least this many seconds passed since the last clue.")]
     public float retargetCooldown = 2f;
 
+    [Header("Close encounter (D-75)")]
+    [Tooltip("Heard him very close (D-19) and SAW him within this many seconds -> still a first sight for the close encounter.")]
+    public float heardThenSawWindow = 1.5f;
+
     [Header("Debug")]
     public bool logIgnoredClues = false;
 
@@ -48,6 +60,10 @@ public class BearBrain : MonoBehaviour
     private BearKnowledge knowledge;
     private BearInvestigationSystem investigationSystem;
     private BearInvestigateSoundState investigateSoundState;
+    private BearCloseEncounterState closeEncounter;
+
+    private float knowsSince = -999f;   // when the mode last became Knows
+    private bool knowsBySound;          // ...and it was a sound, not the eyes
 
     private Vector3 lastCluePosition;
     private float lastClueTime = -999f;
@@ -61,6 +77,7 @@ public class BearBrain : MonoBehaviour
         knowledge = GetComponent<BearKnowledge>();
         investigationSystem = GetComponent<BearInvestigationSystem>();
         investigateSoundState = GetComponent<BearInvestigateSoundState>();
+        closeEncounter = GetComponent<BearCloseEncounterState>();
     }
 
     // Scene check: the value saved in the scene wins over the code.
@@ -73,6 +90,9 @@ public class BearBrain : MonoBehaviour
         else if (knowsEntryState != BearState.Stalk && hasStalk)
             Debug.LogWarning("BearBrain: Knows Entry State = " + knowsEntryState +
                              " - stalking (D-35) is skipped on first contact. Set it to Stalk in the Inspector.");
+
+        if (closeEncounter == null)
+            Debug.LogWarning("BearBrain: BearCloseEncounterState is missing on the bear - close encounters (D-75) are off.");
     }
 
     private void OnEnable()
@@ -82,6 +102,7 @@ public class BearBrain : MonoBehaviour
 
         knowledge.ModeChanged += HandleModeChanged;
         knowledge.SoundClue += HandleSoundClue;
+        knowledge.SightStarted += HandleSightStarted;
     }
 
     private void OnDisable()
@@ -91,6 +112,7 @@ public class BearBrain : MonoBehaviour
 
         knowledge.ModeChanged -= HandleModeChanged;
         knowledge.SoundClue -= HandleSoundClue;
+        knowledge.SightStarted -= HandleSightStarted;
     }
 
     // ---------------------------------------------------------------
@@ -98,12 +120,50 @@ public class BearBrain : MonoBehaviour
     // ---------------------------------------------------------------
     private void HandleModeChanged(KnowledgeMode oldMode, KnowledgeMode newMode)
     {
+        if (newMode == KnowledgeMode.Knows)
+        {
+            knowsSince = Time.time;
+            knowsBySound = !knowledge.IsSeeingPlayer;
+
+            // Attack / face-off already deal with him: the contact came
+            // back because the ignoring ended (BearBoundaries, D-75).
+            BearState current = bearAI.StateMachine.CurrentState;
+            if (current == BearState.Chase || current == BearState.FaceOff)
+            {
+                Debug.Log("[Brain] mode Knows -> stays in " + current);
+                return;
+            }
+
+            // First sight close by -> the close encounter (D-75).
+            if (knowledge.IsSeeingPlayer && closeEncounter != null && closeEncounter.TryStart("first sight"))
+                return;
+        }
+
         BearState next = newMode == KnowledgeMode.Knows ? knowsEntryState
                        : knowledge.IsIgnoringPlayer ? releasedEntryState
                        : lostEntryState;
 
         Debug.Log("[Brain] mode " + newMode + " -> " + next);
         bearAI.StateMachine.ChangeState(next);
+    }
+
+    // ---------------------------------------------------------------
+    // D-75: heard him very close (D-19 -> Knows, stalking) and a moment
+    // later SAW him - that is the same surprise, nothing has changed for
+    // the bear. Later sights are not first sights (BearBoundaries).
+    // ---------------------------------------------------------------
+    private void HandleSightStarted()
+    {
+        if (closeEncounter == null || knowledge.Mode != KnowledgeMode.Knows)
+            return;
+
+        if (!knowsBySound || Time.time - knowsSince > heardThenSawWindow)
+            return;
+
+        if (bearAI.StateMachine.CurrentState != knowsEntryState)
+            return;     // another state already deals with him
+
+        closeEncounter.TryStart("heard him close, then saw him");
     }
 
     // ---------------------------------------------------------------

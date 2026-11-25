@@ -143,9 +143,9 @@ public static class BearClipSpeeds
     }
 
     // ---------------------------------------------------------------
-    // Helpers.
+    // Helpers (internal: BearClipAnalysis uses them too, 24.11).
     // ---------------------------------------------------------------
-    private static Animator FindAnimator(GameObject selected)
+    internal static Animator FindAnimator(GameObject selected)
     {
         if (selected == null)
             return null;
@@ -155,7 +155,7 @@ public static class BearClipSpeeds
     }
 
     // The bone the whole body hangs on (RigRoot / RigPelvis).
-    private static Transform FindBody(Transform root)
+    internal static Transform FindBody(Transform root)
     {
         SkinnedMeshRenderer skin = root.GetComponentInChildren<SkinnedMeshRenderer>();
         if (skin != null && skin.rootBone != null)
@@ -166,7 +166,7 @@ public static class BearClipSpeeds
     }
 
     // Paws = the lowest end bones of the skeleton, one per leg.
-    private static List<Transform> FindPaws(Transform root)
+    internal static List<Transform> FindPaws(Transform root)
     {
         SkinnedMeshRenderer skin = root.GetComponentInChildren<SkinnedMeshRenderer>();
         HashSet<Transform> bones = skin != null && skin.bones.Length > 0

@@ -27,6 +27,10 @@ using UnityEngine.AI;
 //      yet), stands attackHold seconds, then lets the player go.
 //    It loses the player after patternLoseContactTime without sight and
 //    sound (not 3 s: 10.11 it gave up when he flashed behind a tree).
+// 5. CONTACT (25.11): in any chase, when the bear physically runs into
+//    the player (body line within contactDistance: he stopped dead, it
+//    was veering off to spare him) - every decision is cancelled and it
+//    ATTACKS. It never runs through him and on into the forest.
 // Losing the player is decided by BearKnowledge (D-20) -> BearBrain ->
 // SearchLastKnown, in both cases.
 // =====================================================================
@@ -48,6 +52,14 @@ public class BearChaseState : BearStateBehaviour
     [Tooltip("The bear stops this close (m, from the muzzle - BearBodyPoints, 13.11). From Tracking it waits; from a pattern - ATTACK (placeholder).")]
     public float catchDistance = 2f;
     public float turnSpeed = 360f;          // deg/s when facing the player in place
+
+    [Header("Braking (25.11)")]
+    [Tooltip("How hard it brakes, m/s2. 10 = about 1 g - a heavy animal on soil (9.5 m/s -> 0 in ~1 s, ~4.5 m). It starts braking early, so it stops about catchDistance from him; he stops suddenly - it may still run into him.")]
+    public float brakeDeceleration = 10f;
+
+    [Header("Contact (25.11)")]
+    [Tooltip("Ran into him (m, from the body line muzzle -> rear: in front = from the muzzle, from the side = the flank touches him). Any decision is cancelled - mercy, waiting at catchDistance - it ATTACKS. Touch: it does not need to see him.")]
+    public float contactDistance = 1f;
 
     [Header("End of chase (from Tracking)")]
     [Tooltip("The player is seen moving slower than this (m/s)...")]
@@ -77,6 +89,7 @@ public class BearChaseState : BearStateBehaviour
     private float repathTimer;
     private float calmTimer;
     private bool caught;
+    private bool braking;
 
     // Given by a pattern before the switch (Prepare).
     private bool prepared;
@@ -107,6 +120,7 @@ public class BearChaseState : BearStateBehaviour
     private void OnEnable()
     {
         caught = false;
+        braking = false;
         calmTimer = 0f;
         repathTimer = 0f;
         Movement.SetSpeed(chaseSpeed);
@@ -153,6 +167,12 @@ public class BearChaseState : BearStateBehaviour
         if (!Knowledge.HasLastKnownPosition)
             return;
 
+        if (mode != ChaseMode.Attacked && TouchesPlayer(out float contact))
+        {
+            AttackOnContact(contact);
+            return;
+        }
+
         if (mode == ChaseMode.Mercy)
         {
             UpdateMercy();
@@ -180,6 +200,8 @@ public class BearChaseState : BearStateBehaviour
 
         if (HandleCaughtUp())
             return;
+
+        ApplyBraking();
 
         repathTimer -= Time.deltaTime;
         if (repathTimer > 0f)
@@ -250,6 +272,78 @@ public class BearChaseState : BearStateBehaviour
 
         Movement.FaceTowards(Knowledge.LastKnownPosition, turnSpeed);
         return true;
+    }
+
+    // ---------------------------------------------------------------
+    // Contact (25.11): measured to where he really is, not to the last
+    // known point - at a metre it feels and smells him, sight is not
+    // needed. From the body line, so a flank sweeping through him on a
+    // turn counts too, not only the muzzle.
+    // ---------------------------------------------------------------
+    private bool TouchesPlayer(out float distance)
+    {
+        distance = float.PositiveInfinity;
+        Transform player = Knowledge.Player;
+        if (player == null)
+            return false;
+
+        if (bodyPoints == null)
+            bodyPoints = GetComponent<BearBodyPoints>();
+
+        distance = bodyPoints != null && bodyPoints.Active
+            ? bodyPoints.DistanceFromBody(player.position)
+            : Flat(player.position - transform.position).magnitude;
+
+        return distance <= contactDistance;
+    }
+
+    private void AttackOnContact(float distance)
+    {
+        string was = mode == ChaseMode.Mercy ? "it was veering off to spare him"
+            : mode == ChaseMode.FromTracking ? "it was only chasing (from Tracking)"
+            : willSpare ? "it was going to spare him"
+            : "it was going to attack anyway";
+
+        mode = ChaseMode.Attacked;
+        timer = attackHold;
+        Movement.Stop();
+        Debug.Log("[Chase] CONTACT at " + distance.ToString("F1") + " m from its body - ran into him, " + was +
+                  " -> ATTACK (placeholder - there is no attack yet): " + reason);
+    }
+
+    // ---------------------------------------------------------------
+    // Braking (25.11): the closing speed allowed now = what it can kill
+    // with brakeDeceleration before catchDistance. The player's own speed
+    // away from the bear is added (it adapts to him, he may stop suddenly).
+    // Far away the limit is above chaseSpeed - it runs as usual.
+    // ---------------------------------------------------------------
+    private void ApplyBraking()
+    {
+        float distance = DistanceToPlayer();
+        Vector3 toPlayer = Flat(Knowledge.LastKnownPosition - transform.position);
+        float away = Knowledge.IsSeeingPlayer && toPlayer.sqrMagnitude > 0.01f
+            ? Mathf.Max(0f, Vector3.Dot(Flat(Knowledge.LastKnownVelocity), toPlayer.normalized))
+            : 0f;
+        float allowed = away + Mathf.Sqrt(2f * brakeDeceleration * Mathf.Max(0f, distance - catchDistance));
+
+        if (allowed >= chaseSpeed)
+        {
+            if (braking)
+            {
+                braking = false;
+                Movement.SetSpeed(chaseSpeed);
+            }
+            return;
+        }
+
+        if (!braking)
+        {
+            braking = true;
+            Debug.Log("[Chase] BRAKING at " + distance.ToString("F1") + " m: " + Movement.CurrentSpeed.ToString("F1") +
+                      " m/s, he moves away at " + away.ToString("F1") + " m/s");
+        }
+
+        Movement.LimitSpeed(allowed);
     }
 
     // Seen -> predicted point; not seen -> last known point (no direction).

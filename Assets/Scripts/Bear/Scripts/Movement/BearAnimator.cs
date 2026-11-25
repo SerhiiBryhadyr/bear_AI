@@ -11,6 +11,10 @@ using UnityEngine;
 // Sneak (Bool) = a state asked to sneak (BearMovement.SetSneak) AND
 // the bear is slow enough. Faster -> normal trot / run, so the bear
 // does not "sneak" at 6 m/s while it runs between covers.
+// 25.11: it crouches only after CREEPING for sneakHoldTime. Before, every
+// stop after a trot (and every start) passed through the sneak band for
+// a moment: the Sneak state showed the crouched clip while the damped
+// Speed fell, then Stand_Idle - a ~0.5 s neck dip, "a twitch".
 //
 // Needs in the Animator Controller: parameters "Speed" (Float) and
 // "Sneak" (Bool). On the Animator: Apply Root Motion OFF - the
@@ -41,6 +45,10 @@ public class BearAnimator : MonoBehaviour
     [Header("Sneak")]
     [Tooltip("Sneak shows only up to this speed, m/s. It turns off above this + 0.5, so it does not flicker at the border.")]
     public float sneakMaxSpeed = 2.5f;
+    [Tooltip("Slower than this (m/s) = it stands, does not creep.")]
+    public float sneakMinSpeed = 0.15f;
+    [Tooltip("It crouches only after creeping this long (s) and goes back to the normal state after standing this long. A quick stop or start passes through without a dip (25.11).")]
+    public float sneakHoldTime = 0.5f;
 
     [Header("Debug")]
     [Tooltip("Once a second: [Anim] speed and sneak - to tune the blend tree thresholds.")]
@@ -51,6 +59,7 @@ public class BearAnimator : MonoBehaviour
 
     private BearMovement movement;
     private bool sneakShown;
+    private float sneakChangeTimer;     // how long the wanted posture differs from the shown one
     private float logTimer;
 
     private void Awake()
@@ -80,19 +89,48 @@ public class BearAnimator : MonoBehaviour
         // over ~speedDampTime instead of jumping.
         animator.SetFloat(SpeedId, speed / k, speedDampTime, Time.deltaTime);
 
-        // Sneak with a small gap: on below sneakMaxSpeed,
-        // off above sneakMaxSpeed + 0.5.
-        if (!movement.Sneaking)
-            sneakShown = false;
-        else if (speed <= sneakMaxSpeed)
-            sneakShown = true;
-        else if (speed > sneakMaxSpeed + 0.5f)
-            sneakShown = false;
-
+        UpdateSneak(speed);
         animator.SetBool(SneakId, sneakShown);
 
         if (logSpeed)
             LogSpeed(speed, k);
+    }
+
+    // Sneak (25.11). Off at once when the state stops sneaking or the bear
+    // runs (a trot in the sneak clip slides). Otherwise the posture
+    // changes only when the wanted one holds sneakHoldTime: creeping ->
+    // crouch; standing -> the normal state (both show Stand_Idle at 0,
+    // so that switch is not seen, and a start into a trot stays upright).
+    // Between sneakMaxSpeed and +0.5 - keeps what it shows (no flicker).
+    private void UpdateSneak(float speed)
+    {
+        if (!movement.Sneaking || speed > sneakMaxSpeed + 0.5f)
+        {
+            sneakShown = false;
+            sneakChangeTimer = 0f;
+            return;
+        }
+
+        bool want;
+        if (speed <= sneakMinSpeed)
+            want = false;
+        else if (speed <= sneakMaxSpeed)
+            want = true;
+        else
+            want = sneakShown;
+
+        if (want == sneakShown)
+        {
+            sneakChangeTimer = 0f;
+            return;
+        }
+
+        sneakChangeTimer += Time.deltaTime;
+        if (sneakChangeTimer < sneakHoldTime)
+            return;
+
+        sneakShown = want;
+        sneakChangeTimer = 0f;
     }
 
     // Size Time Scale, or the auto value 1 / sqrt(scale).

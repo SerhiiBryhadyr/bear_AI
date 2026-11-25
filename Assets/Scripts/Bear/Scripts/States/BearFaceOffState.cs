@@ -9,14 +9,18 @@ using UnityEngine.AI;
 //
 // Who starts it: whoever calls Begin() and then ChangeState(FaceOff),
 // like BearChaseState.Prepare(). Now - pattern 1 when the player has
-// noticed the bear; next - D-57 (BearBrain); later - being spotted
-// while stalking (D-41).
+// noticed the bear; the close encounter (BearCloseEncounterState, D-75:
+// they saw each other, a roar from behind, he turned while it backed
+// off); BearBoundaries (Good: the last warning, D-75). Later - being
+// spotted while stalking (D-41).
 //
 // 1. FACE-OFF: the bear stops, watches reactionDelay seconds, then
 //    reads what the player does (BearPlayerReaction) and answers by
 //    the mood table (D-52):
 //                      Good             Medium               Angry
-//    comes at it       attack           attack               attack
+//    comes at it       roar, last       attack               attack
+//                      warning; comes
+//                      on -> attack (25.11, D-75)
 //    runs              chase, mercy 95% chase, mercy 50%     attack
 //    walks away        threat, stays,   hunt (*)             hunt (*)
 //    (bluff)           lets him go
@@ -44,10 +48,12 @@ using UnityEngine.AI;
 //    walk / run -> chase; sees him stand / back away / come -> FACE-OFF
 //    again with only refindEscapeTime to hide; found findsToAttack
 //    times -> attack. Memory over -> forgets him (no long ignoring).
-// 3. END: chase or attack (BearChaseState), lets him go
-//    (BearKnowledge.Release -> patrol), back to stalking, or the player
-//    is lost (D-20). TimeSinceEnded - read by pattern 1 for the pause
-//    between patterns.
+// 3. END: chase or attack (BearChaseState), LEAVES for show and stalks
+//    him again (D-75, 24.11: a calm walk away so he thinks it is over;
+//    after leaveDeceiveTime, or as soon as it hears him walk / run away,
+//    stalking - the patterns wait leavePatternPause), back to stalking,
+//    or the player is lost (D-20). TimeSinceEnded - read by pattern 1
+//    for the pause between patterns.
 // Threats, growls and rearing up are logs for now.
 // =====================================================================
 public class BearFaceOffState : BearStateBehaviour
@@ -104,11 +110,18 @@ public class BearFaceOffState : BearStateBehaviour
     [Tooltip("Forgets him: ignores him only this long (s) - just so BearBrain sends it on patrol, not to search again.")]
     public float forgetIgnoreTime = 2f;
 
-    [Header("Leaving")]
-    [Tooltip("Leaving calmly: walks this far from the player (m), then lets him go.")]
+    [Header("Good: the last warning (D-75, 25.11)")]
+    [Tooltip("Roar before the attack when he comes at a Good bear. Empty -> the warning roar of BearRearPursuitState.")]
+    public AudioClip warningRoarClip;
+    [Range(0f, 1f)] public float roarVolume = 1f;
+
+    [Header("Leaving (D-75, 24.11: for show, then stalking)")]
+    [Tooltip("Leaving calmly toward a point this far from the player (m) - a show: he should think it is over.")]
     public float leaveDistance = 30f;
-    [Tooltip("Leaving at most this long (s).")]
-    public float leaveMaxTime = 8f;
+    [Tooltip("The show lasts this long (s), then it stalks him. Sooner if it hears him walk / run away.")]
+    public float leaveDeceiveTime = 4f;
+    [Tooltip("After the face-off the patterns wait this long (s).")]
+    public float leavePatternPause = 60f;
 
     [Header("Contact")]
     [Tooltip("During the face-off the player is lost after this long without sight and sound (s) - the same as in pattern 1.")]
@@ -130,7 +143,10 @@ public class BearFaceOffState : BearStateBehaviour
     private BearChaseState chase;
     private BearHearing hearing;
     private BearAreaSearch search;
+    private BearRearPursuitState rearPursuit;
+    private BearVoice voice;
     private BearPatrolSystem patrol;
+    private BearStalkState stalk;
 
     private Phase phase;
     private float phaseStart;
@@ -147,6 +163,8 @@ public class BearFaceOffState : BearStateBehaviour
     private Answer answer;
     private float answerEnd;
     private bool hadRetreat;
+    private bool warned;                // Good: the last warning was given (roar)
+    private bool pendingWarned;
     private float hiddenTimer;
     private float turnedAwayAt = -1f;   // he turned his back after backing away (-1 = he did not)
     private bool hearingBoosted;
@@ -175,6 +193,9 @@ public class BearFaceOffState : BearStateBehaviour
         hearing = GetComponent<BearHearing>();
         search = GetComponent<BearAreaSearch>();
         patrol = GetComponent<BearPatrolSystem>();
+        stalk = GetComponent<BearStalkState>();
+        rearPursuit = GetComponent<BearRearPursuitState>();
+        voice = BearVoice.On(gameObject);
 
         if (reaction == null)
             Debug.LogError("BearFaceOffState: BearPlayerReaction is missing on the bear.");
@@ -188,9 +209,11 @@ public class BearFaceOffState : BearStateBehaviour
 
     // Who starts the face-off calls this first, then ChangeState(FaceOff).
     // distance / why - for the log and the release distance; escapeTime -
-    // Medium, how long he has to hide (-1 = mediumEscapeTime).
-    public void Begin(float distance, string why, float escapeTime = -1f)
+    // Medium, how long he has to hide (-1 = mediumEscapeTime); warned -
+    // the caller has already roared the last warning (BearBoundaries).
+    public void Begin(float distance, string why, float escapeTime = -1f, bool warned = false)
     {
+        pendingWarned = warned;
         pendingDistance = distance;
         pendingWhy = why;
         pendingEscapeTime = escapeTime;
@@ -278,6 +301,8 @@ public class BearFaceOffState : BearStateBehaviour
         Movement.Stop();
         answer = Answer.None;
         hadRetreat = false;
+        warned = pendingWarned;
+        pendingWarned = false;
         hiddenTimer = 0f;
         turnedAwayAt = -1f;
         SetHearingBoost(false);
@@ -332,10 +357,11 @@ public class BearFaceOffState : BearStateBehaviour
         hiddenTimer = 0f;
         SetHearingBoost(false);
 
-        // Comes at the bear - attack in any mood (one small step does not count).
+        // Comes at the bear (one small step does not count): Good warns
+        // once with a roar, the others attack.
         if (ComesAtBear(distance))
         {
-            Attack("he comes at the bear");
+            ComesAtIt("he comes at the bear");
             return;
         }
 
@@ -727,6 +753,28 @@ public class BearFaceOffState : BearStateBehaviour
         StartChase(0f, why);
     }
 
+    // He comes at the bear. Good: the first time - a roar, the last
+    // warning (it stands its ground; he must come approachGain closer
+    // again to be attacked); after that - attack. Others - attack.
+    private void ComesAtIt(string why)
+    {
+        if (Mood != BearMoodLevel.Good || warned)
+        {
+            Attack(why + (warned ? " after the last warning" : ""));
+            return;
+        }
+
+        if (phase != Phase.FaceOff)
+            StartFaceOff(DistanceToPlayer(), "the last warning while leaving");   // turns back to him (resets warned)
+
+        warned = true;
+        approachFrom = -1f;     // he has to come closer again
+        AudioClip clip = warningRoarClip != null ? warningRoarClip : (rearPursuit != null ? rearPursuit.warningRoarClip : null);
+        if (voice != null)
+            voice.Play(clip, roarVolume);
+        Log("LAST WARNING - roar" + (clip == null ? " (no clip)" : "") + ": " + why + "; comes on -> attack");
+    }
+
     private void ChaseWithMercy(float mercy, string why)
     {
         Log("CHASE, mercy " + Mathf.RoundToInt(mercy * 100f) + "%: " + why);
@@ -745,7 +793,7 @@ public class BearFaceOffState : BearStateBehaviour
         ChangeState(BearState.Chase);
     }
 
-    // Turns and leaves calmly, then lets the player go (patrol).
+    // Turns and leaves calmly - for show - then stalks him (D-75).
     private void StartLeave(string why)
     {
         SetPhase(Phase.Leave);
@@ -766,7 +814,7 @@ public class BearFaceOffState : BearStateBehaviour
 
         Movement.SetSpeedMultiplier(1f);
         Movement.MoveTo(leavePoint);
-        Log("LEAVES calmly: " + why);
+        Log("LEAVES calmly (for show " + leaveDeceiveTime.ToString("F0") + " s): " + why);
     }
 
     private void UpdateLeaving(float distance)
@@ -774,15 +822,26 @@ public class BearFaceOffState : BearStateBehaviour
         // Comes at the bear while it leaves - still an attack.
         if (ComesAtBear(distance) && distance < releaseDistance)
         {
-            Attack("he comes at the bear while it leaves");
+            ComesAtIt("he comes at the bear while it leaves");
             return;
         }
 
+        // It does not look back, but it hears: a walk / run away -> stalking at once.
+        bool heardHim = Knowledge.TimeSinceHeard < 0.5f && Knowledge.LastHeardLoudness >= loudStep;
         bool arrived = FlatDistance(transform.position, leavePoint) <= 2f;
-        if (!arrived && PhaseTime < leaveMaxTime)
+        if (!heardHim && !arrived && PhaseTime < leaveDeceiveTime)
             return;
 
-        Knowledge.Release("face-off - " + leaveReason);
+        if (stalk == null)
+        {
+            Knowledge.Release("face-off - " + leaveReason + " (no BearStalkState)");
+            return;
+        }
+
+        stalk.PausePatterns(leavePatternPause, "after the face-off");
+        Log("-> STALKING: " + leaveReason + "; " +
+            (heardHim ? "heard him go away (" + StepName(Knowledge.LastHeardLoudness) + ")" : "the show is over after " + PhaseTime.ToString("F1") + " s"));
+        ChangeState(BearState.Stalk);
     }
 
     // ===============================================================

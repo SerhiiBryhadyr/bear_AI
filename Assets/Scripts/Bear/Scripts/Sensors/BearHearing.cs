@@ -6,6 +6,7 @@ using UnityEngine;
 //
 // A sound is heard if the bear is closer than its Loudness
 // (Loudness = hearing radius in metres, set by the sound source),
+// x baseRange (how good its ears are - one knob for all sounds, 25.11)
 // x RangeMultiplier while a state asks the bear to listen harder
 // (D-52, 11.11: it has just lost the player and listens for him).
 // Heard -> passed to BearKnowledge, which decides what it means
@@ -14,6 +15,10 @@ using UnityEngine;
 // -------------------------------------------------------------------
 public class BearHearing : MonoBehaviour
 {
+    [Header("Ears")]
+    [Tooltip("How good the ears are: every sound's radius x this (1 = as the sound says: crouch 2.5, slow back 4, back 7, walk 10, run 20 m). Later - x the ground under the player.")]
+    public float baseRange = 1f;
+
     [Header("Debug")]
     public bool logHeardSounds = false;     // every heard sound (2-3 per second while walking)
     public bool logIgnoredSounds = false;   // sounds that were too far
@@ -45,7 +50,7 @@ public class BearHearing : MonoBehaviour
     public void HearSound(SoundEvent soundEvent)
     {
         float distance = Vector3.Distance(transform.position, soundEvent.Position);
-        float radius = soundEvent.Loudness * RangeMultiplier;
+        float radius = soundEvent.Loudness * baseRange * RangeMultiplier;
 
         if (distance > radius)
         {

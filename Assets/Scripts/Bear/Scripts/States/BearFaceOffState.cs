@@ -54,7 +54,12 @@ using UnityEngine.AI;
 //    stalking - the patterns wait leavePatternPause), back to stalking,
 //    or the player is lost (D-20). TimeSinceEnded - read by pattern 1
 //    for the pause between patterns.
-// Threats, growls and rearing up are logs for now.
+// 4. WHAT THE PLAYER SEES (D-76, 25.11): BearThreatDisplay shows threat
+//    levels 0-3 (stares / rears up -> angry stance + huff -> paw slam +
+//    roar -> lunge + roar), one step at a time (WantedLevel). An action
+//    is never cut: the decisions above wait until it ends. Contact - he
+//    is contactDistance from the bear's body - is an attack at once,
+//    from any phase, even in the middle of an action.
 // =====================================================================
 public class BearFaceOffState : BearStateBehaviour
 {
@@ -71,8 +76,8 @@ public class BearFaceOffState : BearStateBehaviour
     public float backedAwayTime = 1f;
     [Range(0f, 1f)] public float goodMercy = 0.95f;
     [Range(0f, 1f)] public float mediumMercy = 0.5f;
-    [Tooltip("Good: watches the backing / standing player this long (s, random), then turns and leaves.")]
-    public Vector2 goodWatchTime = new Vector2(4f, 7f);
+    [Tooltip("Good: watches the backing / standing player this long (s, random), then turns and leaves. 8-12 s from 25.11 (D-76): time for 2-3 threat actions.")]
+    public Vector2 goodWatchTime = new Vector2(8f, 12f);
     [Tooltip("Good, bluff: threatens (growls, hind legs) this long (s), then leaves.")]
     public float threatTime = 4f;
     [Tooltip("Medium, backing at normal speed: follows him this long (s); he does not slow down -> attack.")]
@@ -126,6 +131,12 @@ public class BearFaceOffState : BearStateBehaviour
     [Header("Contact")]
     [Tooltip("During the face-off the player is lost after this long without sight and sound (s) - the same as in pattern 1.")]
     public float loseContactTime = 15f;
+    [Tooltip("He is this close to the bear's body (m, BearBodyPoints) -> attack at once, from any phase, even in the middle of a threat action (25.11). The lunge moves the muzzle ~1 m forward - it reaches him too.")]
+    public float contactDistance = 1f;
+
+    [Header("Threat the player sees (D-76, 25.11)")]
+    [Tooltip("Good: he stands (or walks off pretending) this long (s) -> level 1 'go away' (the angry stance). Backing away brings it down.")]
+    public float goodLevel1After = 3f;
 
     [Header("Movement")]
     public float turnSpeed = 180f;
@@ -147,6 +158,8 @@ public class BearFaceOffState : BearStateBehaviour
     private BearVoice voice;
     private BearPatrolSystem patrol;
     private BearStalkState stalk;
+    private BearThreatDisplay display;
+    private BearBodyPoints bodyPoints;
 
     private Phase phase;
     private float phaseStart;
@@ -173,6 +186,9 @@ public class BearFaceOffState : BearStateBehaviour
     private float approachFrom = -1f;   // distance when he started walking toward the bear (-1 = he does not)
     private float releaseAt;            // Good: lets him go at this distance
     private float escapeDeadline;       // Medium: must be hidden by then
+    private float escapeTotal;          // ... out of this many seconds (threat levels)
+    private float hesitateTotal;        // Angry: the hesitation, s (threat levels)
+    private float goodImpatience;       // Good: how long he has stood (s) - threat level 1
 
     private Vector3 leavePoint;
     private string leaveReason = "";
@@ -196,6 +212,14 @@ public class BearFaceOffState : BearStateBehaviour
         stalk = GetComponent<BearStalkState>();
         rearPursuit = GetComponent<BearRearPursuitState>();
         voice = BearVoice.On(gameObject);
+        bodyPoints = GetComponent<BearBodyPoints>();
+
+        display = GetComponent<BearThreatDisplay>();
+        if (display == null)
+        {
+            display = gameObject.AddComponent<BearThreatDisplay>();
+            Debug.Log("BearFaceOffState: BearThreatDisplay added in Play - add it to the bear to keep its settings.");
+        }
 
         if (reaction == null)
             Debug.LogError("BearFaceOffState: BearPlayerReaction is missing on the bear.");
@@ -264,6 +288,8 @@ public class BearFaceOffState : BearStateBehaviour
         if (search != null)
             search.Stop();
         SetHearingBoost(false);
+        if (display != null)
+            display.Stop();
     }
 
     // ---------------------------------------------------------------
@@ -276,6 +302,16 @@ public class BearFaceOffState : BearStateBehaviour
 
         Vector3 player = Knowledge.EstimatePlayerPosition(3f);
         float distance = FlatDistance(player, transform.position);
+
+        // Contact (25.11): he ran into the bear - attack at once, from any
+        // phase, even in the middle of a threat action (it is cut).
+        if (TouchesPlayer(out float touch))
+        {
+            if (display != null)
+                display.Abort();
+            Attack("CONTACT at " + touch.ToString("F1") + " m from its body - he ran into it");
+            return;
+        }
 
         // Searching, the bear does not know where he is: the head goes with the body.
         bool searching = phase == Phase.Search || phase == Phase.Lost;
@@ -309,7 +345,11 @@ public class BearFaceOffState : BearStateBehaviour
         if (search != null)
             search.Stop();
         releaseAt = Mathf.Max(releaseDistance, distance + backOffGain);
-        escapeDeadline = Time.time + reactionDelay + (escapeTime > 0f ? escapeTime : mediumEscapeTime);
+        escapeTotal = escapeTime > 0f ? escapeTime : mediumEscapeTime;
+        escapeDeadline = Time.time + reactionDelay + escapeTotal;
+        goodImpatience = 0f;
+        if (display != null)
+            display.Begin();
 
         Knowledge.MarkNoticed("face-off - noticed at " + distance.ToString("F0") + " m");
         Log("NOTICED at " + distance.ToString("F0") + " m (" + why + ") - FACE-OFF");
@@ -317,10 +357,12 @@ public class BearFaceOffState : BearStateBehaviour
 
     private void UpdateFaceOff(Vector3 player, float distance)
     {
-        if (answer != Answer.Follow)
+        // Stands and turns to him - unless it follows him or steps toward
+        // him (threat level 1). In the middle of an action it turns slowly.
+        if (answer != Answer.Follow && (display == null || !display.Moving))
         {
             Movement.Stop();
-            Movement.FaceTowards(player, turnSpeed);
+            Movement.FaceTowards(player, display != null && display.IsBusy ? turnSpeed * 0.3f : turnSpeed);
         }
 
         if (PhaseTime < reactionDelay)
@@ -335,6 +377,15 @@ public class BearFaceOffState : BearStateBehaviour
             hadRetreat = true;
 
         UpdateTurnedAway(act);
+
+        // What the player sees (D-76). An action is never cut (25.11):
+        // every decision below waits until it ends.
+        if (display != null)
+        {
+            display.Tick(WantedLevel(act), distance, player);
+            if (display.IsBusy)
+                return;
+        }
 
         if (act == PlayerAction.Unknown)
         {
@@ -502,6 +553,7 @@ public class BearFaceOffState : BearStateBehaviour
         {
             answer = Answer.Hesitate;
             answerEnd = Time.time + Random.Range(angryHesitation.x, angryHesitation.y);
+            hesitateTotal = answerEnd - Time.time;
             Log("hesitates - will charge in " + (answerEnd - Time.time).ToString("F1") + " s (angry)");
         }
 
@@ -772,6 +824,8 @@ public class BearFaceOffState : BearStateBehaviour
         AudioClip clip = warningRoarClip != null ? warningRoarClip : (rearPursuit != null ? rearPursuit.warningRoarClip : null);
         if (voice != null)
             voice.Play(clip, roarVolume);
+        if (display != null)
+            display.WarnLunge();                            // the lunge with the roar (25.11)
         Log("LAST WARNING - roar" + (clip == null ? " (no clip)" : "") + ": " + why + "; comes on -> attack");
     }
 
@@ -853,6 +907,58 @@ public class BearFaceOffState : BearStateBehaviour
         phaseStart = Time.time;
         repathTimer = 0f;
         approachFrom = -1f;
+
+        // Leaves, searches, wanders: no standing threats.
+        if (newPhase != Phase.FaceOff && display != null)
+            display.Stop();
+    }
+
+    // ---------------------------------------------------------------
+    // Threat level the player should see now (D-76, 25.11):
+    // 0 "I see you", 1 "go away", 2 "last warning", 3 "I'll attack",
+    // -1 = it walks after him (no standing threats).
+    //   Good:   he stands or walks off pretending goodLevel1After s -> 1;
+    //           backing away brings it back to 0. Never above 1.
+    //   Medium: counts down to the attack: the first third of the time
+    //           to hide - 1, the second - 2, the last - 3.
+    //   Angry:  the same, until its charge.
+    // ---------------------------------------------------------------
+    private int WantedLevel(PlayerAction act)
+    {
+        if (answer == Answer.Follow)
+            return -1;
+
+        if (Mood == BearMoodLevel.Good)
+        {
+            if (act == PlayerAction.Stands || answer == Answer.Threat)
+                goodImpatience += Time.deltaTime;
+            else if (act == PlayerAction.BacksAway || act == PlayerAction.BacksAwaySlow)
+                goodImpatience = Mathf.Max(0f, goodImpatience - 2f * Time.deltaTime);
+            return goodImpatience >= goodLevel1After ? 1 : 0;
+        }
+
+        if (answer == Answer.Threat)
+            return LevelByTime(escapeDeadline, escapeTotal);
+        if (answer == Answer.Hesitate)
+            return LevelByTime(answerEnd, hesitateTotal);
+        return 0;
+    }
+
+    private static int LevelByTime(float deadline, float total)
+    {
+        float left = (deadline - Time.time) / Mathf.Max(1f, total);
+        return left > 0.66f ? 1 : left > 0.33f ? 2 : 3;
+    }
+
+    // Contact (25.11): to where he really is, from the body line (bones -
+    // the lunge carries the muzzle forward, the contact zone goes with it).
+    private bool TouchesPlayer(out float distance)
+    {
+        Vector3 player = Knowledge.Player.position;
+        distance = bodyPoints != null && bodyPoints.Active
+            ? bodyPoints.DistanceFromBody(player)
+            : FlatDistance(player, transform.position);
+        return distance <= contactDistance;
     }
 
     // He walks or runs at the bear AND has really come approachGain closer

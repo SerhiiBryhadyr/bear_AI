@@ -34,6 +34,8 @@ using UnityEngine.AI;
 //    the bear for long (D-75).
 // Walking at the bear closer than its boundary - BearBoundaries (works
 // in the back-off, flee and calm phases of this state too).
+// Contact (25.11): he is contactDistance from the bear's body -> attack
+// at once, in any phase.
 // Angry: a concept for later - uses the Medium numbers for now.
 // =====================================================================
 public class BearCloseEncounterState : BearStateBehaviour
@@ -99,6 +101,10 @@ public class BearCloseEncounterState : BearStateBehaviour
 
     [Header("Movement")]
     public float turnSpeed = 180f;
+
+    [Header("Contact (25.11)")]
+    [Tooltip("He is this close to the bear's body (m, BearBodyPoints) -> attack at once, in any phase.")]
+    public float contactDistance = 1f;
 
     [Header("Debug")]
     [Tooltip("Log [CloseTick] every tickInterval s: phase, distance, what he does, where he looks.")]
@@ -253,6 +259,14 @@ public class BearCloseEncounterState : BearStateBehaviour
             return;
 
         Vector3 player = Knowledge.EstimatePlayerPosition(3f);
+
+        // Contact (25.11): he ran into the bear - attack, whatever it was doing.
+        if (TouchesPlayer(out float touch))
+        {
+            Attack("CONTACT at " + touch.ToString("F1") + " m from its body - he ran into it");
+            return;
+        }
+
         UpdateSeesTimer();
         Tick(player);
 
@@ -275,6 +289,18 @@ public class BearCloseEncounterState : BearStateBehaviour
             case Phase.Flee: UpdateFlee(player); break;
             default: UpdateCalm(player); break;
         }
+    }
+
+    // Contact: to where he really is, from the body line.
+    private bool TouchesPlayer(out float distance)
+    {
+        distance = float.PositiveInfinity;
+        if (Knowledge.Player == null)
+            return false;
+
+        Vector3 p = Knowledge.Player.position;
+        distance = body != null && body.Active ? body.DistanceFromBody(p) : FlatDistance(p, transform.position);
+        return distance <= contactDistance;
     }
 
     // Stands, turns its muzzle to him, the head looks at him.

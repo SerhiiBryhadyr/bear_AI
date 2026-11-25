@@ -272,8 +272,8 @@ public class BearCloseEncounterState : BearStateBehaviour
                 break;
 
             case Phase.BackOff: UpdateBackOff(); break;
-            case Phase.Flee: UpdateFlee(); break;
-            default: UpdateCalm(); break;
+            case Phase.Flee: UpdateFlee(player); break;
+            default: UpdateCalm(player); break;
         }
     }
 
@@ -388,8 +388,12 @@ public class BearCloseEncounterState : BearStateBehaviour
         Log("FLEES - startled, " + fleeSpeed.ToString("F0") + " m/s to a point " + FlatDistance(transform.position, target).ToString("F0") + " m away");
     }
 
-    private void UpdateFlee()
+    private void UpdateFlee(Vector3 player)
     {
+        // Runs its way, the head looks back at him (within maxHeadTurn).
+        if (vision != null)
+            vision.SetLookTarget(player + Vector3.up * 1.2f);
+
         bool arrived = PhaseTime > 0.5f && (Movement.HasReachedDestination() || FlatDistance(transform.position, target) <= 2f);
         if (!arrived && PhaseTime < phaseDuration)
             return;
@@ -400,9 +404,11 @@ public class BearCloseEncounterState : BearStateBehaviour
         Log("ran away, calms down " + phaseDuration.ToString("F0") + " s");
     }
 
-    private void UpdateCalm()
+    // Stopped after running away: turns to where he probably is and
+    // watches him (25.11: it stood with its back to him 20-30 s and lost him).
+    private void UpdateCalm(Vector3 player)
     {
-        Movement.Stop();
+        Stand(player);
         if (PhaseTime >= phaseDuration)
             ToStalk("calmed down after fleeing - comes back to look at him");
     }

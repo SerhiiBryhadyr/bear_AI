@@ -246,6 +246,10 @@ public class BearKnowledge : MonoBehaviour
         if (IsSeeingPlayer)
             return;
 
+        // First turns its head to the sound (25.11) - may see the player.
+        if (vision != null)
+            vision.GlanceAt(soundEvent.Position);
+
         // Very close -> exact position in any mode (D-19).
         if (distance <= closeSoundRadius)
         {

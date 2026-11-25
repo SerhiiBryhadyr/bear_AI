@@ -43,7 +43,7 @@ public class BearAnimator : MonoBehaviour
     public float sizeTimeScale = 0f;
 
     [Header("Sneak")]
-    [Tooltip("Sneak shows only up to this speed, m/s. It turns off above this + 0.5, so it does not flicker at the border.")]
+    [Tooltip("Sneak shows only up to this speed, m/s. It turns off above this + 0.5, so it does not flicker at the border. 0 = sneak off (21.11, until D-63; before 25.11 it still came on at a full stop).")]
     public float sneakMaxSpeed = 2.5f;
     [Tooltip("Slower than this (m/s) = it stands, does not creep.")]
     public float sneakMinSpeed = 0.15f;

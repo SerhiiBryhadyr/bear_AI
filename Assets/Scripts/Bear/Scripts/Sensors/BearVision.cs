@@ -26,11 +26,15 @@ using UnityEngine;
 // Eyes: an empty "Eyes" object under the head bone, blue axis (Z)
 // looking forward. Without it - body position + eyeHeight, body forward.
 //
-// Head turn (logic of D-32): a state may ask the eyes to follow a point
+// Head turn (D-32): a state may ask the eyes to follow a point
 // (SetLookTarget) - the bear walks its own way but turns its head to
-// the player, at most maxHeadTurn from the body. Used by stalking. The
-// visible head turn (Animation Rigging) comes with D-32; until then the
-// head turn is only in the logic.
+// the player, at most maxHeadTurn from the body. Stalking, face-off,
+// close encounter and pattern 1 use it. A heard sound turns the head
+// for a moment (GlanceAt, 25.11) when no state holds the look.
+// BearHeadLook turns the head bones there; while it is on, the angle of
+// view comes from the real Eyes - the bear sees exactly where its
+// muzzle points (the eyes lag a little while the head turns).
+// Without BearHeadLook the head turn exists only in the logic.
 // Not yet: flashlight, grass (only bushes with a Foliage collider hide).
 // =====================================================================
 public class BearVision : MonoBehaviour
@@ -55,9 +59,11 @@ public class BearVision : MonoBehaviour
     [Tooltip("Closer than this (m) to the bear's body - any side, head to rear (BearBodyPoints, 13.11) - the bear notices the player at any angle (hears, smells, side vision). Obstacles still count. Without BearBodyPoints - from the eyes.")]
     public float closeRange = 2.5f;
 
-    [Header("Head turn (D-32, logic only)")]
-    [Tooltip("When a state asks the eyes to follow a point (stalking), the head turns to it at most this far from the body (deg).")]
+    [Header("Head turn (D-32)")]
+    [Tooltip("When the eyes follow a point (a state or a sound), the head turns to it at most this far from the body (deg). BearHeadLook uses the same limit.")]
     public float maxHeadTurn = 80f;
+    [Tooltip("Heard a sound and does not see the player: the head looks at the sound this long (s). A new sound starts it again.")]
+    public float glanceTime = 2.5f;
 
     [Header("How noticeable the player is (0-1)")]
     public float runFactor = 1f;
@@ -97,6 +103,9 @@ public class BearVision : MonoBehaviour
 
     private bool hasLookTarget;
     private Vector3 lookTarget;
+    private Vector3 glancePoint;
+    private float glanceUntil = -1f;
+    private BearHeadLook headLook;
 
     // ---------------------------------------------------------------
     // Setup: find the player and his body (size changes when crouching).
@@ -107,6 +116,7 @@ public class BearVision : MonoBehaviour
             foliageLayers = LayerMask.GetMask("Foliage");
 
         bodyPoints = GetComponent<BearBodyPoints>();
+        headLook = GetComponent<BearHeadLook>();
 
         GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
 
@@ -180,14 +190,19 @@ public class BearVision : MonoBehaviour
 
     private Vector3 LookDirection()
     {
-        if (hasLookTarget)
+        // The head really turns (BearHeadLook): the eyes look where the muzzle points.
+        if (eyes != null && headLook != null && headLook.isActiveAndEnabled)
+            return eyes.forward;
+
+        // Without it the head turn exists only in the logic.
+        if (HasLookPoint)
             return HeadDirection();
 
         return eyes != null ? eyes.forward : transform.forward;
     }
 
     // ---------------------------------------------------------------
-    // Head turn (D-32 logic). A state calls SetLookTarget every frame
+    // Head turn (D-32). A state calls SetLookTarget every frame
     // while it wants the eyes on a point, ClearLookTarget when it ends.
     // ---------------------------------------------------------------
     public void SetLookTarget(Vector3 point)
@@ -201,13 +216,28 @@ public class BearVision : MonoBehaviour
         hasLookTarget = false;
     }
 
+    // A heard sound (BearKnowledge, 25.11): the head turns to it for
+    // glanceTime. Ignored while a state holds the look - it knows better.
+    public void GlanceAt(Vector3 point)
+    {
+        if (hasLookTarget)
+            return;
+
+        glancePoint = point;
+        glanceUntil = Time.time + glanceTime;
+    }
+
+    // Where the bear wants to look now: the state's point, else a sound.
+    public bool HasLookPoint => hasLookTarget || Time.time < glanceUntil;
+    public Vector3 LookPoint => hasLookTarget ? lookTarget : glancePoint;
+
     // Toward the look target, but not further than maxHeadTurn from the
     // body: the bear cannot look straight behind without turning.
     private Vector3 HeadDirection()
     {
         Vector3 body = transform.forward;
         body.y = 0f;
-        Vector3 toTarget = lookTarget - EyePosition();
+        Vector3 toTarget = LookPoint - EyePosition();
         toTarget.y = 0f;
 
         if (body.sqrMagnitude < 0.0001f || toTarget.sqrMagnitude < 0.0001f)
@@ -346,7 +376,7 @@ public class BearVision : MonoBehaviour
     // ---------------------------------------------------------------
     // Scene view (bear selected): rays of the last check -
     // green = visible point, yellow = behind bushes, red = hidden.
-    // Cyan line = where the head looks while it follows a point.
+    // Cyan line = where the bear wants to look (a state's point or a sound).
     // ---------------------------------------------------------------
     private void OnDrawGizmosSelected()
     {
@@ -360,7 +390,7 @@ public class BearVision : MonoBehaviour
             Gizmos.DrawLine(lastEyePosition, points[i]);
         }
 
-        if (hasLookTarget)
+        if (HasLookPoint)
         {
             Gizmos.color = Color.cyan;
             Gizmos.DrawLine(lastEyePosition, lastEyePosition + HeadDirection() * 5f);

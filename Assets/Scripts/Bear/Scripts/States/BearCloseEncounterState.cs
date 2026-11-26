@@ -49,7 +49,7 @@ public class BearCloseEncounterState : BearStateBehaviour
     public float surpriseAfter = 30f;
 
     [Header("Instinct (startled only)")]
-    [Range(0f, 1f)] public float goodFlee = 0.5f;
+    [Range(0f, 1f)] public float goodFlee = 0.25f;    // 25.11 (D-83): was 0.5 - a Good bear is not a coward
     [Range(0f, 1f)] public float mediumFlee = 0.3f;
     [Range(0f, 1f)] public float angryFlee = 0.1f;
     [Tooltip("Huff right at the moment of sight, if it does not flee.")]
@@ -76,6 +76,8 @@ public class BearCloseEncounterState : BearStateBehaviour
     public Vector2 retreatDistance = new Vector2(20f, 30f);
     [Tooltip("m/s; 5.5 = clean trot.")]
     public float retreatSpeed = 5.5f;
+    [Tooltip("Good backs off quietly at a walk (m/s) - a confident bear does not trot away from him (D-83, 25.11).")]
+    public float goodRetreatSpeed = 2.2f;
     public float retreatMaxTime = 10f;
 
     [Header("Fleeing")]
@@ -120,6 +122,7 @@ public class BearCloseEncounterState : BearStateBehaviour
     private BearPlayerReaction reaction;
     private BearMood mood;
     private BearBodyPoints body;
+    private BearCoverFinder cover;
     private BearFaceOffState faceOff;
     private BearChaseState chase;
     private BearStalkState stalk;
@@ -382,11 +385,16 @@ public class BearCloseEncounterState : BearStateBehaviour
     // --- Back off: walks away out of his sight -> stalking ---
     private void StartBackOff()
     {
-        target = PointAway(Random.Range(retreatDistance.x, retreatDistance.y));
-        Movement.SetSpeed(retreatSpeed);
+        // To cover if there is one (25.11, D-77), else just away from him.
+        if (cover == null)
+            cover = GetComponent<BearCoverFinder>();
+        if (cover == null || !cover.Find(Knowledge.LastKnownPosition, out target))
+            target = PointAway(Random.Range(retreatDistance.x, retreatDistance.y));
+        float speed = Mood == BearMoodLevel.Good ? goodRetreatSpeed : retreatSpeed;   // D-83: Good - quietly, at a walk
+        Movement.SetSpeed(speed);
         Movement.MoveTo(target);
-        SetPhase(Phase.BackOff, retreatMaxTime);
-        Log("RETREATS at a trot " + retreatSpeed.ToString("F1") + " m/s - he did not see it, to a point " +
+        SetPhase(Phase.BackOff, speed < 3f ? retreatMaxTime * 2f : retreatMaxTime);   // at a walk it needs longer
+        Log("RETREATS " + (speed < 3f ? "quietly at a walk " : "at a trot ") + speed.ToString("F1") + " m/s - he did not see it, to a point " +
             FlatDistance(transform.position, target).ToString("F0") + " m away");
     }
 

@@ -4,10 +4,11 @@ using UnityEngine;
 // BearThreatDisplay - what the player SEES of the bear's threat in the
 // face-off (25.11, D-76). Levels, one step at a time:
 //
-//   0 "I see you"    - stares (the head on him), shakes its head or
-//                      rears up (to see him better, to look bigger)
+//   0 "I see you"    - stares (the head on him) or rears up (to see him
+//                      better, to look bigger)
 //   1 "go away"      - the angry stance (head low) + huff; sometimes
-//                      1-2 steps toward him first; peers, shakes its head
+//                      1-2 steps toward him first; peers, huffs
+// (A head shake by code was tried 25.11 - it looked like a human "no".)
 //   2 "last warning" - slams its paws on the ground + roar
 //   3 "I'll attack"  - lunge with a paw hook + roar
 //
@@ -19,7 +20,7 @@ using UnityEngine;
 // The face-off's decisions (attack, chase, leave) wait while an action
 // plays (IsBusy): an action is never cut (25.11). Only contact (he ran
 // into the bear) cuts it - Abort().
-// Animator: BearThreatAnimator; head shake: BearHeadLook; sounds: BearVoice.
+// Animator: BearThreatAnimator; sounds: BearVoice.
 // =====================================================================
 public class BearThreatDisplay : MonoBehaviour
 {
@@ -29,17 +30,13 @@ public class BearThreatDisplay : MonoBehaviour
     [Tooltip("Inside a level: pause after an action before the next one (s, random).")]
     public Vector2 actionPause = new Vector2(2f, 4f);
 
-    [Header("Level 0 - rears up, shakes its head")]
+    [Header("Level 0 - rears up")]
     [Tooltip("Good: chance it rears up at level 0.")]
     [Range(0f, 1f)] public float goodRearChance = 0.4f;
     [Tooltip("Medium / Angry rear up only when he is farther than this (m): it takes ~9 s.")]
     public float rearMinDistance = 15f;
     [Tooltip("Medium / Angry, farther than rearMinDistance: chance it rears up.")]
     [Range(0f, 1f)] public float rearChanceFar = 0.4f;
-    [Tooltip("Head shake: how long (s).")]
-    public float shakeTime = 1.3f;
-    [Tooltip("Head shake: angle to each side (deg, random in the range).")]
-    public Vector2 shakeAngle = new Vector2(10f, 25f);
 
     [Header("Level 1 - steps toward him")]
     [Tooltip("Chance it first walks toward him before the angry stance.")]
@@ -50,11 +47,25 @@ public class BearThreatDisplay : MonoBehaviour
     public float stepMinDistance = 7f;
     public float stepSpeed = 1.5f;
 
-    [Header("Sounds")]
-    [Tooltip("Huff at level 1. Empty - only the log.")]
-    public AudioClip huffClip;
-    [Tooltip("Roar at levels 2-3. Empty = the warning roar of BearRearPursuitState.")]
-    public AudioClip roarClip;
+    [Header("Sounds (25.11: Assets/Audio/Bear, ElevenLabs)")]
+    [Tooltip("Huffs, one at random (Bear_Huff_*). Empty - only the log.")]
+    public AudioClip[] huffClips;
+    [Tooltip("Low growls in the angry stance, one at random (Bear_GrowlLow_*, Bear_Growl_*).")]
+    public AudioClip[] growlClips;
+    [Tooltip("Ordinary roars (Bear_Roar_*, Bear_GrowlRoar_*) - when there is no attack roar. Empty = the warning roar of BearRearPursuitState.")]
+    public AudioClip[] roarClips;
+    [Tooltip("SHARP attack roars - with the lunge and the paw slam, at the moment of the strike (Bear_RoarAttack_*, 26.11). Empty - ordinary roars.")]
+    public AudioClip[] attackRoarClips;
+    [Tooltip("Lunge: the strike - share of the clip (0-1; ~0.9 s of 4.0).")]
+    [Range(0f, 1f)] public float lungeRoarAt = 0.2f;
+    [Tooltip("Paw slam: the roar as it rears up - share of the clip (0-1; ~0.45 s of 3.0).")]
+    [Range(0f, 1f)] public float slamRoarAt = 0.15f;
+    [Tooltip("Jaw popping - level 2 (Bear_JawClack_*).")]
+    public AudioClip jawClip;
+    [Tooltip("The paws hit the ground in the paw slam (Bear_PawThud_*).")]
+    public AudioClip thudClip;
+    [Tooltip("When the paws hit the ground in the paw slam: share of the clip (0-1; ~1.2 s of 3.0).")]
+    [Range(0f, 1f)] public float thudAt = 0.4f;
     [Range(0f, 1f)] public float volume = 1f;
 
     [Header("Debug")]
@@ -65,10 +76,10 @@ public class BearThreatDisplay : MonoBehaviour
     public bool Moving => stepping;                         // the face-off must not stop it
 
     private BearThreatAnimator anim;
-    private BearHeadLook headLook;
     private BearMovement movement;
     private BearMood mood;
     private BearVoice voice;
+    private BearPresenceSounds presence;                    // a breath after a roar (26.11)
     private AudioClip roarFallback;
 
     private float levelSince;
@@ -88,10 +99,10 @@ public class BearThreatDisplay : MonoBehaviour
         anim = GetComponent<BearThreatAnimator>();
         if (anim == null)
             anim = gameObject.AddComponent<BearThreatAnimator>();
-        headLook = GetComponent<BearHeadLook>();
         movement = GetComponent<BearMovement>();
         mood = GetComponent<BearMood>();
         voice = BearVoice.On(gameObject);
+        presence = GetComponent<BearPresenceSounds>();
 
         BearRearPursuitState pursuit = GetComponent<BearRearPursuitState>();
         roarFallback = pursuit != null ? pursuit.warningRoarClip : null;
@@ -170,8 +181,8 @@ public class BearThreatDisplay : MonoBehaviour
             Level = 1;                                      // the lunge ends in the angry stance
             StartLevel();
         }
-        Say("LAST WARNING: lunge");
-        anim.Play(BearThreatAnimator.Lunge);
+        Say("LAST WARNING: lunge + sharp roar");
+        Lunge();
         lastAction = "lunge";
     }
 
@@ -204,17 +215,13 @@ public class BearThreatDisplay : MonoBehaviour
         nextActionAt = Time.time + Random.Range(actionPause.x, actionPause.y);
     }
 
-    // The opening: stares, shakes its head or rears up (not as last time).
+    // The opening: stares or rears up (not rears up twice in a row).
     private void OpenLevel0(float distance)
     {
         bool good = mood == null || mood.Level == BearMoodLevel.Good;
         float rear = good ? goodRearChance : (distance >= rearMinDistance ? rearChanceFar : 0f);
 
-        string pick;
-        if (lastLevel0 != "rear" && Random.value < rear)
-            pick = "rear";
-        else
-            pick = lastLevel0 == "shake" ? "stare" : lastLevel0 == "stare" ? "shake" : (Random.value < 0.5f ? "stare" : "shake");
+        string pick = lastLevel0 != "rear" && Random.value < rear ? "rear" : "stare";
 
         lastLevel0 = pick;
         lastAction = pick;
@@ -223,10 +230,6 @@ public class BearThreatDisplay : MonoBehaviour
             case "rear":
                 Say("level 0: REARS UP - looks at him, shows its size (" + distance.ToString("F0") + " m)");
                 anim.Play(BearThreatAnimator.HindUp);
-                break;
-            case "shake":
-                Say("level 0: shakes its head");
-                ShakeHead();
                 break;
             default:
                 Say("level 0: stares at him");
@@ -250,15 +253,18 @@ public class BearThreatDisplay : MonoBehaviour
                 if (up && distance > stepMinDistance && Random.value < stepChance)
                 {
                     StartStep(player, distance);
-                    Say("level 0 -> 1: steps toward him, then the angry stance + huff");
+                    Say("level 0 -> 1: steps toward him, then the angry stance + growl");
                 }
                 else
                 {
-                    Say("level " + from + " -> 1: angry stance + huff");
+                    Say("level " + from + " -> 1: angry stance + growl");
                     if (!anim.InAngryStance)
                         anim.Play(BearThreatAnimator.AngryIn);
                 }
-                Huff();
+                if (up)
+                    Growl();
+                else
+                    Huff();
                 lastAction = "stance";
                 break;
 
@@ -266,8 +272,7 @@ public class BearThreatDisplay : MonoBehaviour
                 if (up)
                 {
                     Say("level 1 -> 2: PAW SLAM + roar");
-                    anim.Play(BearThreatAnimator.PawSlam);
-                    Roar();
+                    PawSlam();
                     lastAction = "paw";
                 }
                 else
@@ -276,8 +281,7 @@ public class BearThreatDisplay : MonoBehaviour
 
             default:
                 Say("level 2 -> 3: LUNGE + roar");
-                anim.Play(BearThreatAnimator.Lunge);
-                Roar();
+                Lunge();
                 lastAction = "lunge";
                 break;
         }
@@ -292,39 +296,36 @@ public class BearThreatDisplay : MonoBehaviour
         switch (Level)
         {
             case 0:
-                pick = lastAction == "shake" ? "stare" : (Random.value < 0.5f ? "shake" : "stare");
-                if (pick == "shake")
-                    ShakeHead();
-                break;
+                return;                                     // stares on (the head on him)
 
             case 1:
-                pick = Pick(lastAction, "peer", "shake", "huff");
+                pick = lastAction == "peer" ? "growl" : "peer";
                 if (pick == "peer")
+                {
                     anim.Play(BearThreatAnimator.AngryPeer);
-                else if (pick == "shake")
-                    ShakeHead();
-                else
                     Huff();
+                }
+                else
+                    Growl();
                 break;
 
             case 2:
-                pick = lastAction == "paw" ? "shake" : "paw";
+                pick = lastAction == "paw" ? "jaw" : "paw";
                 if (pick == "paw")
-                {
-                    anim.Play(BearThreatAnimator.PawSlam);
-                    Roar();
-                }
+                    PawSlam();
                 else
                 {
-                    ShakeHead();
-                    Huff();
+                    anim.Play(BearThreatAnimator.AngryPeer);
+                    Jaw();
                 }
                 break;
 
             default:
                 pick = lastAction == "lunge" ? "paw" : "lunge";
-                anim.Play(pick == "lunge" ? BearThreatAnimator.Lunge : BearThreatAnimator.PawSlam);
-                Roar();
+                if (pick == "lunge")
+                    Lunge();
+                else
+                    PawSlam();
                 break;
         }
 
@@ -364,31 +365,56 @@ public class BearThreatDisplay : MonoBehaviour
     // ---------------------------------------------------------------
     // Helpers.
     // ---------------------------------------------------------------
-    private void ShakeHead()
+    // The paw slam: a sharp roar as it rears up, the thud when the paws hit the ground.
+    private void PawSlam()
     {
-        if (headLook != null && headLook.isActiveAndEnabled)
-            headLook.Shake(shakeTime, Random.Range(shakeAngle.x, shakeAngle.y));
+        anim.Play(BearThreatAnimator.PawSlam);
+        AttackRoar(BearThreatAnimator.PawSlam, slamRoarAt);
+        anim.QueueSound(BearThreatAnimator.PawSlam, thudAt, thudClip, volume);
     }
 
-    private void Huff()
+    // The lunge: a sharp roar at the moment of the strike.
+    private void Lunge()
     {
-        if (huffClip != null && voice != null)
-            voice.Play(huffClip, volume);
-        else if (logLevels)
-            Debug.Log("[Threat] huff (no clip)");
+        anim.Play(BearThreatAnimator.Lunge);
+        AttackRoar(BearThreatAnimator.Lunge, lungeRoarAt);
     }
 
+    // A sharp roar inside an action, at its point (no attack roars - an ordinary one).
+    private void AttackRoar(string action, float at)
+    {
+        AudioClip[] set = attackRoarClips != null && attackRoarClips.Length > 0 ? attackRoarClips : roarClips;
+        AudioClip clip = set != null && set.Length > 0 ? set[Random.Range(0, set.Length)] : roarFallback;
+        if (clip == null)
+        {
+            if (logLevels)
+                Debug.Log("[Threat] roar (no clip)");
+            return;
+        }
+        anim.QueueSound(action, at, clip, volume);
+        if (presence != null)
+            presence.AfterRoar(clip.length + 0.5f);         // breathes out after it (it starts a bit later)
+    }
+
+    private void Huff() { Sound(huffClips, null, "huff"); }
+    private void Growl() { Sound(growlClips, null, "growl"); }
     private void Roar()
     {
-        AudioClip clip = roarClip != null ? roarClip : roarFallback;
+        AudioClip clip = Sound(roarClips, roarFallback, "roar");
+        if (clip != null && presence != null)
+            presence.AfterRoar(clip.length);                // then it breathes out
+    }
+    private void Jaw() { Sound(jawClip != null ? new[] { jawClip } : null, null, "jaw popping"); }
+
+    // One clip at random; none -> the fallback; none at all -> the log.
+    private AudioClip Sound(AudioClip[] clips, AudioClip fallback, string what)
+    {
+        AudioClip clip = clips != null && clips.Length > 0 ? clips[Random.Range(0, clips.Length)] : fallback;
         if (clip != null && voice != null)
             voice.Play(clip, volume);
-    }
-
-    private static string Pick(string last, params string[] options)
-    {
-        string pick = options[Random.Range(0, options.Length)];
-        return pick == last ? options[(System.Array.IndexOf(options, pick) + 1) % options.Length] : pick;
+        else if (logLevels)
+            Debug.Log("[Threat] " + what + " (no clip)");
+        return clip;
     }
 
     private void Say(string text)

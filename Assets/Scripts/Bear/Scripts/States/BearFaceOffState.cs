@@ -48,12 +48,17 @@ using UnityEngine.AI;
 //    walk / run -> chase; sees him stand / back away / come -> FACE-OFF
 //    again with only refindEscapeTime to hide; found findsToAttack
 //    times -> attack. Memory over -> forgets him (no long ignoring).
-// 3. END: chase or attack (BearChaseState), LEAVES for show and stalks
-//    him again (D-75, 24.11: a calm walk away so he thinks it is over;
-//    after leaveDeceiveTime, or as soon as it hears him walk / run away,
-//    stalking - the patterns wait leavePatternPause), back to stalking,
-//    or the player is lost (D-20). TimeSinceEnded - read by pattern 1
-//    for the pause between patterns.
+// 3. END: chase or attack (BearChaseState), RUNS TO COVER and watches
+//    him from there (25.11, D-77; it was "walks away for show" on open
+//    ground): BearCoverFinder picks a thicket, not a lone bush; it trots
+//    there (walks if near), stands front-on to him and watches. He comes
+//    within ambushDistance -> it bursts out and attacks (any mood). He
+//    goes away / hideTime is over -> stalking (patterns wait
+//    leavePatternPause). NO cover around and he holds his ground -> it
+//    does not leave: PRESSES him (Good too): one threat level up every
+//    pressureStep s he stands, after the lunge he still stands -> attack;
+//    backing away calms it, far -> stalking. Or back to stalking, or the
+//    player is lost (D-20). TimeSinceEnded - read by pattern 1.
 // 4. WHAT THE PLAYER SEES (D-76, 25.11): BearThreatDisplay shows threat
 //    levels 0-3 (stares / rears up -> angry stance + huff -> paw slam +
 //    roar -> lunge + roar), one step at a time (WantedLevel). An action
@@ -120,13 +125,33 @@ public class BearFaceOffState : BearStateBehaviour
     public AudioClip warningRoarClip;
     [Range(0f, 1f)] public float roarVolume = 1f;
 
-    [Header("Leaving (D-75, 24.11: for show, then stalking)")]
-    [Tooltip("Leaving calmly toward a point this far from the player (m) - a show: he should think it is over.")]
-    public float leaveDistance = 30f;
-    [Tooltip("The show lasts this long (s), then it stalks him. Sooner if it hears him walk / run away.")]
-    public float leaveDeceiveTime = 4f;
+    [Header("Leaving to cover (D-77, 25.11)")]
+    [Tooltip("Runs to cover at this speed (m/s): a trot, not a full run.")]
+    public float coverRunSpeed = 6f;
+    [Tooltip("Cover nearer than this (m) - it walks there.")]
+    public float coverWalkIfCloser = 12f;
+    public float coverWalkSpeed = 2.5f;
+    [Tooltip("Gives up getting there after this long (s) and hides where it is.")]
+    public float coverMaxRunTime = 12f;
+    [Tooltip("In cover: he comes this close to the bear's body (m) -> it bursts out and attacks (any mood).")]
+    public float ambushDistance = 8f;
+    [Tooltip("In cover: he is this far (m) -> stalking.")]
+    public float hideReleaseDistance = 35f;
+    [Tooltip("In cover this long (s) -> stalking.")]
+    public float maxHideTime = 25f;
+    [Tooltip("In cover it sees him come at it at least this fast (m/s), closer than coverStepOutDistance -> steps out: Good - the last warning, others - attack (26.11).")]
+    public float coverChargeSpeed = 3f;
+    public float coverStepOutDistance = 25f;
+    [Tooltip("In cover it neither sees nor hears him this long (s) -> goes to look (stalking).")]
+    public float coverBlindTime = 3f;
     [Tooltip("After the face-off the patterns wait this long (s).")]
     public float leavePatternPause = 60f;
+
+    [Header("No cover: presses him to leave (25.11)")]
+    [Tooltip("He stands: one threat level up every this many seconds (Good too, up to the lunge).")]
+    public float pressureStep = 4f;
+    [Tooltip("After the lunge (level 3) he still stands this long (s) -> attack, even Good.")]
+    public float pressureAttackAfter = 3f;
 
     [Header("Contact")]
     [Tooltip("During the face-off the player is lost after this long without sight and sound (s) - the same as in pattern 1.")]
@@ -160,6 +185,7 @@ public class BearFaceOffState : BearStateBehaviour
     private BearStalkState stalk;
     private BearThreatDisplay display;
     private BearBodyPoints bodyPoints;
+    private BearCoverFinder cover;
 
     private Phase phase;
     private float phaseStart;
@@ -192,6 +218,11 @@ public class BearFaceOffState : BearStateBehaviour
 
     private Vector3 leavePoint;
     private string leaveReason = "";
+    private bool atCover;               // got to its cover, watches him from there
+    private float hideStart;
+    private bool pressing;              // no cover: stays and presses him to leave
+    private float pressureTime;         // how long he has held his ground while pressed (s)
+    private float level3Since = -1f;    // pressed: when the lunge level was reached
 
     private float PhaseTime => Time.time - phaseStart;
     private BearMoodLevel Mood => mood != null ? mood.Level : BearMoodLevel.Good;
@@ -219,6 +250,13 @@ public class BearFaceOffState : BearStateBehaviour
         {
             display = gameObject.AddComponent<BearThreatDisplay>();
             Debug.Log("BearFaceOffState: BearThreatDisplay added in Play - add it to the bear to keep its settings.");
+        }
+
+        cover = GetComponent<BearCoverFinder>();
+        if (cover == null)
+        {
+            cover = gameObject.AddComponent<BearCoverFinder>();
+            Debug.Log("BearFaceOffState: BearCoverFinder added in Play - add it to the bear to keep its settings.");
         }
 
         if (reaction == null)
@@ -313,9 +351,10 @@ public class BearFaceOffState : BearStateBehaviour
             return;
         }
 
-        // Searching, the bear does not know where he is: the head goes with the body.
-        bool searching = phase == Phase.Search || phase == Phase.Lost;
-        if (vision != null && !searching)
+        // The head on him only face to face. Leaving (a show - it does not look
+        // back, 25.11) and searching (it does not know where he is): the head
+        // goes with the body (StartLeave / StartSearch clear the look).
+        if (vision != null && phase == Phase.FaceOff)
             vision.SetLookTarget(player + Vector3.up * 1.2f);
 
         switch (phase)
@@ -348,6 +387,9 @@ public class BearFaceOffState : BearStateBehaviour
         escapeTotal = escapeTime > 0f ? escapeTime : mediumEscapeTime;
         escapeDeadline = Time.time + reactionDelay + escapeTotal;
         goodImpatience = 0f;
+        pressing = false;
+        pressureTime = 0f;
+        level3Since = -1f;
         if (display != null)
             display.Begin();
 
@@ -427,6 +469,12 @@ public class BearFaceOffState : BearStateBehaviour
     // Good: only scares him, no idea to kill.
     private void FaceOffGood(PlayerAction act, float distance)
     {
+        if (pressing)
+        {
+            UpdatePressure(act, distance);
+            return;
+        }
+
         if (act == PlayerAction.RunsAway || act == PlayerAction.WalksAway)
         {
             if (hadRetreat)
@@ -822,10 +870,10 @@ public class BearFaceOffState : BearStateBehaviour
         warned = true;
         approachFrom = -1f;     // he has to come closer again
         AudioClip clip = warningRoarClip != null ? warningRoarClip : (rearPursuit != null ? rearPursuit.warningRoarClip : null);
-        if (voice != null)
-            voice.Play(clip, roarVolume);
         if (display != null)
-            display.WarnLunge();                            // the lunge with the roar (25.11)
+            display.WarnLunge();                            // the lunge + a sharp roar at the strike (26.11)
+        else if (voice != null)
+            voice.Play(clip, roarVolume);
         Log("LAST WARNING - roar" + (clip == null ? " (no clip)" : "") + ": " + why + "; comes on -> attack");
     }
 
@@ -847,54 +895,181 @@ public class BearFaceOffState : BearStateBehaviour
         ChangeState(BearState.Chase);
     }
 
-    // Turns and leaves calmly - for show - then stalks him (D-75).
+    // The face-off is over (D-77, 25.11): it runs to the best cover and
+    // watches him from there - no more "walks away for show" and standing
+    // on open ground. No cover around: he holds his ground -> it stays and
+    // presses him to leave; he is going anyway -> stalking.
     private void StartLeave(string why)
     {
-        SetPhase(Phase.Leave);
-        leaveReason = why;
-
         Vector3 player = Knowledge.LastKnownPosition;
-        Vector3 away = Flat(transform.position - player);
-        if (away.sqrMagnitude < 0.01f)
-            away = transform.forward;
 
-        Vector3 direction = Quaternion.Euler(0f, Random.Range(-35f, 35f), 0f) * away.normalized;
-        leavePoint = player + direction * leaveDistance;
+        if (cover != null && cover.Find(player, out Vector3 point))
+        {
+            SetPhase(Phase.Leave);
+            leaveReason = why;
+            leavePoint = point;
+            atCover = false;
 
-        if (NavMesh.SamplePosition(leavePoint, out NavMeshHit hit, 6f, NavMesh.AllAreas))
-            leavePoint = hit.position;
-        else
-            leavePoint = transform.position + direction * 15f;
+            float far = FlatDistance(transform.position, point);
+            bool run = far > coverWalkIfCloser;
+            Movement.SetSpeed(run ? coverRunSpeed : coverWalkSpeed);
+            Movement.MoveTo(point);
+            if (vision != null)
+                vision.ClearLookTarget();                   // runs off - the head with the body
+            Log((run ? "RUNS" : "WALKS") + " TO COVER " + far.ToString("F0") + " m away: " + why);
+            return;
+        }
 
-        Movement.SetSpeedMultiplier(1f);
-        Movement.MoveTo(leavePoint);
-        Log("LEAVES calmly (for show " + leaveDeceiveTime.ToString("F0") + " s): " + why);
+        PlayerAction act = reaction != null ? reaction.Current : PlayerAction.Unknown;
+        bool holdsGround = act == PlayerAction.Stands || act == PlayerAction.Approaches;
+
+        if (holdsGround && phase == Phase.FaceOff && !pressing)
+        {
+            pressing = true;
+            pressureTime = 0f;
+            level3Since = -1f;
+            Log("NO COVER - does not leave, PRESSES him to go (" + why + "): a level up every " +
+                pressureStep.ToString("F0") + " s he stands, after the lunge -> attack");
+            return;
+        }
+
+        ToStalk(why + "; no cover around - he is going anyway");
     }
 
     private void UpdateLeaving(float distance)
     {
-        // Comes at the bear while it leaves - still an attack.
-        if (ComesAtBear(distance) && distance < releaseDistance)
+        if (!atCover)
         {
-            ComesAtIt("he comes at the bear while it leaves");
+            // Comes at the bear while it runs off - still the old rule.
+            if (ComesAtBear(distance) && distance < releaseDistance)
+            {
+                ComesAtIt("he comes at the bear while it leaves");
+                return;
+            }
+
+            bool arrived = PhaseTime > 0.5f &&
+                           (Movement.HasReachedDestination() || FlatDistance(transform.position, leavePoint) <= 1.5f);
+            if (!arrived && PhaseTime < coverMaxRunTime)
+                return;
+
+            atCover = true;
+            hideStart = Time.time;
+            Movement.Stop();
+            Movement.SetSpeedMultiplier(1f);
+            SetHearingBoost(true);                          // 26.11: sharp ears in cover (x hearingBoost)
+            Log("IN COVER" + (arrived ? "" : " (did not get there in " + coverMaxRunTime.ToString("F0") + " s - hides where it is)") +
+                " - faces him, watches, listens x" + hearingBoost + "; he comes within " + ambushDistance.ToString("F0") + " m -> bursts out");
+        }
+
+        // In cover: front-on to him (the narrowest silhouette), the head on him.
+        Vector3 player = Knowledge.EstimatePlayerPosition(3f);
+        Movement.Stop();
+        Movement.FaceTowards(player, turnSpeed * 0.5f);
+        if (vision != null)
+            vision.SetLookTarget(player + Vector3.up * 1.2f);
+
+        float near = BodyDistance();
+        if (near <= ambushDistance)
+        {
+            Attack("he came to its cover (" + near.ToString("F1") + " m) - bursts out");
             return;
         }
 
-        // It does not look back, but it hears: a walk / run away -> stalking at once.
-        bool heardHim = Knowledge.TimeSinceHeard < 0.5f && Knowledge.LastHeardLoudness >= loudStep;
-        bool arrived = FlatDistance(transform.position, leavePoint) <= 2f;
-        if (!heardHim && !arrived && PhaseTime < leaveDeceiveTime)
-            return;
+        // 26.11: not a statue - it keeps track of him from cover.
+        PlayerAction act = reaction.Current;
+        if (Knowledge.IsSeeingPlayer)
+        {
+            // Comes at its cover: it steps out - Good warns (roar + lunge;
+            // one more step -> attack), others attack.
+            if (act == PlayerAction.Approaches && reaction.Speed >= coverChargeSpeed && distance <= coverStepOutDistance)
+            {
+                ComesAtIt("he comes at its cover (" + distance.ToString("F0") + " m, " + reaction.Speed.ToString("F1") + " m/s) - it steps out");
+                return;
+            }
 
+            // Leaves: it follows him - stalking from here.
+            if (act == PlayerAction.RunsAway || act == PlayerAction.WalksAway)
+            {
+                ToStalk(leaveReason + "; from cover it saw him " + (act == PlayerAction.RunsAway ? "run" : "walk") + " away - follows");
+                return;
+            }
+        }
+        else if (Time.time - hideStart > 0.5f)
+        {
+            // Out of sight: sharp ears - a step heard -> goes to look at once;
+            // nothing seen or heard for coverBlindTime -> goes to look too.
+            if (Knowledge.TimeSinceHeard < 0.5f)
+            {
+                ToStalk(leaveReason + "; in cover it heard him (" + StepName(Knowledge.LastHeardLoudness) + ") - goes to look");
+                return;
+            }
+            if (Knowledge.TimeSinceContact >= coverBlindTime)
+            {
+                ToStalk(leaveReason + "; lost sight of him in cover " + Knowledge.TimeSinceContact.ToString("F0") + " s - goes to look");
+                return;
+            }
+        }
+
+        float hidden = Time.time - hideStart;
+        if (distance >= hideReleaseDistance)
+            ToStalk(leaveReason + "; hid in cover, he went away (" + distance.ToString("F0") + " m)");
+        else if (hidden >= maxHideTime)
+            ToStalk(leaveReason + "; watched him from cover " + hidden.ToString("F0") + " s");
+    }
+
+    // No cover (25.11): stays face to face and presses him to go. He
+    // stands -> the level goes up (WantedLevel); after the lunge he still
+    // stands pressureAttackAfter s -> attack, even Good. Backing away calms
+    // it down; far / turned and walking off -> stalking; running -> chase.
+    private void UpdatePressure(PlayerAction act, float distance)
+    {
+        if (act == PlayerAction.RunsAway)
+        {
+            ChaseWithMercy(goodMercy, "he runs (pressed, good mood)");
+            return;
+        }
+
+        if (act == PlayerAction.WalksAway && reaction.TimeInCurrent >= bluffConfirm)
+        {
+            ToStalk("pressed - he turned and walks off");
+            return;
+        }
+
+        if (distance >= releaseAt)
+        {
+            ToStalk("pressed - he went away (" + distance.ToString("F0") + " m)");
+            return;
+        }
+
+        if (act == PlayerAction.BacksAway || act == PlayerAction.BacksAwaySlow)
+            pressureTime = Mathf.Max(0f, pressureTime - Time.deltaTime);
+        else if (act == PlayerAction.Stands || act == PlayerAction.Approaches)
+            pressureTime += Time.deltaTime;
+
+        bool atLunge = display == null ? pressureTime >= 2f * pressureStep : display.Level >= 3;
+        if (!atLunge)
+        {
+            level3Since = -1f;
+            return;
+        }
+
+        if (level3Since < 0f)
+            level3Since = Time.time;
+
+        if (Time.time - level3Since >= pressureAttackAfter && act != PlayerAction.BacksAway && act != PlayerAction.BacksAwaySlow)
+            Attack("pressed to the end - he would not go (no cover, " + Mood + ")");
+    }
+
+    private void ToStalk(string why)
+    {
         if (stalk == null)
         {
-            Knowledge.Release("face-off - " + leaveReason + " (no BearStalkState)");
+            Knowledge.Release("face-off - " + why + " (no BearStalkState)");
             return;
         }
 
         stalk.PausePatterns(leavePatternPause, "after the face-off");
-        Log("-> STALKING: " + leaveReason + "; " +
-            (heardHim ? "heard him go away (" + StepName(Knowledge.LastHeardLoudness) + ")" : "the show is over after " + PhaseTime.ToString("F1") + " s"));
+        Log("-> STALKING: " + why);
         ChangeState(BearState.Stalk);
     }
 
@@ -928,6 +1103,9 @@ public class BearFaceOffState : BearStateBehaviour
         if (answer == Answer.Follow)
             return -1;
 
+        if (pressing)                                       // no cover: up to the lunge, Good too
+            return Mathf.Clamp(1 + (int)(pressureTime / pressureStep), 1, 3);
+
         if (Mood == BearMoodLevel.Good)
         {
             if (act == PlayerAction.Stands || answer == Answer.Threat)
@@ -954,11 +1132,17 @@ public class BearFaceOffState : BearStateBehaviour
     // the lunge carries the muzzle forward, the contact zone goes with it).
     private bool TouchesPlayer(out float distance)
     {
+        distance = BodyDistance();
+        return distance <= contactDistance;
+    }
+
+    // From the bear's body line to where he really is (m).
+    private float BodyDistance()
+    {
         Vector3 player = Knowledge.Player.position;
-        distance = bodyPoints != null && bodyPoints.Active
+        return bodyPoints != null && bodyPoints.Active
             ? bodyPoints.DistanceFromBody(player)
             : FlatDistance(player, transform.position);
-        return distance <= contactDistance;
     }
 
     // He walks or runs at the bear AND has really come approachGain closer

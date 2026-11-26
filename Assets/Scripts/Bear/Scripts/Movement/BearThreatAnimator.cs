@@ -17,6 +17,8 @@ using UnityEngine;
 // back to Locomotion (a standing pose must not slide over the ground).
 // No Threat group in the Animator (the tool was not run) -> nothing
 // plays, IsBusy is false: everything works as before.
+// QueueSound: a sound at a moment INSIDE an action (the paws hit the
+// ground in PawSlam) - plays when the action reaches that point.
 // =====================================================================
 [RequireComponent(typeof(BearMovement))]
 public class BearThreatAnimator : MonoBehaviour
@@ -56,14 +58,24 @@ public class BearThreatAnimator : MonoBehaviour
     private float requestHold;                              // the Animator takes a request on its next update
     private bool requestedAngry;
 
+    private BearVoice voice;
+
+    // QueueSound: in which action, at which point (0-1), which sound.
+    private struct Queued { public int hash; public float at; public AudioClip clip; public float volume; }
+    private readonly List<Queued> queued = new List<Queued>();
+
     public bool Ready { get; private set; }
 
     // An action plays (it must not be cut).
     public bool IsBusy => Ready && (Time.time < requestHold || InState(oneShots));
     // In the angry stance or in an action that ends there.
     public bool InAngryStance => Ready && (Time.time < requestHold ? requestedAngry : InState(angry));
-    // Anywhere in the Threat group.
-    public bool InThreat => Ready && (Time.time < requestHold || InState(all));
+    // Anywhere in the Threat group - and not already blending out to Locomotion
+    // (25.11: asking again every frame restarted the blend - the legs froze, it slid).
+    public bool InThreat => Ready && !GoingToLocomotion && (Time.time < requestHold || InState(all));
+
+    private bool GoingToLocomotion => animator.IsInTransition(0) &&
+                                      animator.GetNextAnimatorStateInfo(0).fullPathHash == locomotionHash;
 
     // ---------------------------------------------------------------
     // Setup: is the Threat group there? State names -> hashes.
@@ -71,6 +83,7 @@ public class BearThreatAnimator : MonoBehaviour
     private void Start()
     {
         movement = GetComponent<BearMovement>();
+        voice = BearVoice.On(gameObject);
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
         if (animator == null)
@@ -107,6 +120,8 @@ public class BearThreatAnimator : MonoBehaviour
 
         if (hasSpeed)
             animator.SetFloat(speedId, actionSpeed);
+
+        UpdateQueuedSound();
 
         // Moving in a standing pose = sliding: back to Locomotion
         // (never in the middle of an action - it is not cut).
@@ -149,6 +164,40 @@ public class BearThreatAnimator : MonoBehaviour
 
         if (logActions)
             Debug.Log("[ThreatAnim] -> Locomotion" + (force ? " (cut: contact)" : ""));
+    }
+
+    // A sound at a point of an action (0-1 of its clip), e.g. the paws
+    // hitting the ground. Dropped if the action ends before that point.
+    public void QueueSound(string action, float atNormalized, AudioClip clip, float volume)
+    {
+        if (!Ready || clip == null)
+            return;
+
+        queued.Add(new Queued { hash = Hash(action), at = atNormalized, clip = clip, volume = volume });
+    }
+
+    private void UpdateQueuedSound()
+    {
+        if (queued.Count == 0)
+            return;
+
+        AnimatorStateInfo info = animator.GetCurrentAnimatorStateInfo(0);
+        int next = animator.IsInTransition(0) ? animator.GetNextAnimatorStateInfo(0).fullPathHash : 0;
+
+        for (int i = queued.Count - 1; i >= 0; i--)
+        {
+            Queued q = queued[i];
+            if (info.fullPathHash == q.hash)
+            {
+                if (info.normalizedTime >= q.at)
+                {
+                    voice.Play(q.clip, q.volume);
+                    queued.RemoveAt(i);
+                }
+            }
+            else if (next != q.hash && Time.time > requestHold)
+                queued.RemoveAt(i);                         // the action is over (or was never played)
+        }
     }
 
     // ---------------------------------------------------------------

@@ -20,8 +20,6 @@ using UnityEngine;
 //
 // No look point -> the head goes back smoothly to the animation as is.
 // Untick the component -> the old way (the eyes turn only in the logic).
-// Shake(): the bear shakes its head side to side for a moment (a stress
-// sign in the face-off, BearThreatDisplay, 25.11), on top of the rest.
 // =====================================================================
 [DefaultExecutionOrder(500)]                                // after the Animator and BearGroundAlign
 public class BearHeadLook : MonoBehaviour
@@ -55,11 +53,6 @@ public class BearHeadLook : MonoBehaviour
     private float turn;                                     // degrees on top of the animation (+ = right)
     private float turnSpeed;                                // for SmoothDampAngle
     private float animatedYaw;                              // where the animation points the head
-
-    private float shakeStart = -1f;
-    private float shakeTime;
-    private float shakeAngle;
-    private const float ShakeFrequency = 1.5f;              // side to side per second
 
     // ---------------------------------------------------------------
     // Setup: the head bone, the neck above it, the shares.
@@ -110,23 +103,6 @@ public class BearHeadLook : MonoBehaviour
                 text += " " + chain[i].name + " " + Mathf.RoundToInt(weights[i] * 100f) + "%";
             Debug.Log(text + ", limit " + vision.maxHeadTurn + " deg");
         }
-    }
-
-    // Shakes its head: angle (deg) to each side, for seconds.
-    public void Shake(float seconds, float angle)
-    {
-        shakeStart = Time.time;
-        shakeTime = Mathf.Max(0.1f, seconds);
-        shakeAngle = angle;
-    }
-
-    // Starts and ends softly (no jump): the swing grows and fades.
-    private float ShakeOffset()
-    {
-        float t = Time.time - shakeStart;
-        if (shakeStart < 0f || t >= shakeTime)
-            return 0f;
-        return shakeAngle * Mathf.Sin(2f * Mathf.PI * ShakeFrequency * t) * Mathf.Sin(Mathf.PI * t / shakeTime);
     }
 
     // Switched off and on again - start from the animation, no jump.
@@ -180,11 +156,9 @@ public class BearHeadLook : MonoBehaviour
 
         // 4. Shared between the neck and the head, around the vertical.
         //    A turned bone carries its children, so the head gets the whole turn.
-        //    A head shake goes on top, not smoothed (it would fade away).
-        float total = turn + ShakeOffset();
         for (int i = 0; i < chain.Count; i++)
         {
-            chain[i].rotation = Quaternion.AngleAxis(total * weights[i], Vector3.up) * chain[i].rotation;
+            chain[i].rotation = Quaternion.AngleAxis(turn * weights[i], Vector3.up) * chain[i].rotation;
             turnedPose[i] = chain[i].localRotation;
         }
     }

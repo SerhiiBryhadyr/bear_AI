@@ -131,6 +131,20 @@ public class BearStalkState : BearStateBehaviour
     [Tooltip("Lost sight of him while frozen -> it cannot know if he still looks, stays still this long after his last look (s). In bushes sight flickers; with 0.5 s it went stop-go-stop (25.11).")]
     public float unfreezeBlindDelay = 2f;
 
+    [Header("Confident bear (D-83, 25.11)")]
+    [Tooltip("Good: it believes he saw it closer than this (m) -> it does not slip away: stands its ground, face-off from a distance (harmless for him). Medium / Angry - encounterDistance as before.")]
+    public float goodFaceOffDistance = 35f;
+    [Tooltip("While it believes he can see it (in his view, not hidden): not faster than this (m/s) - a calm walk. Out of his sight - as before (trot).")]
+    public float onShowMaxSpeed = 1.8f;
+    [Tooltip("'He can see me' = at least this share of it is visible to him (0-1, broadside) and it is in his view.")]
+    [Range(0f, 1f)] public float onShowVisible = 0.3f;
+    [Tooltip("First sight (it was not in an encounter): first it goes to the nearest cover (BearCoverFinder), then stalks from there.")]
+    public bool hideFirstOnSight = true;
+    [Tooltip("Moving: the head is on him this long (s, random)...")]
+    public Vector2 lookOnTime = new Vector2(2f, 4f);
+    [Tooltip("...then looks ahead this long (s, random) - not glued to him. Standing - always on him.")]
+    public Vector2 lookAwayTime = new Vector2(1f, 2f);
+
     [Header("Without sight (D-44)")]
     [Tooltip("No contact at all - no sight and no sound - this long (s) -> the bear peeks out to find the player again.")]
     public float noContactPeekTime = 4f;
@@ -265,6 +279,16 @@ public class BearStalkState : BearStateBehaviour
     private float usedChoiceTime = -999f;   // the analysis choice already used (kept between stalkings)
     private float patternPauseUntil = -999f; // D-75: no pattern until then (kept between stalkings)
     private float lastWatchedTime = -999f;  // the last moment the player looked the bear's way
+    private BearMood mood;
+    private BearCoverFinder cover;
+    private float onShowCheckAt;            // D-83: "he can see me" is checked every 0.3 s
+    private bool onShow;
+    private float lookSwitchAt;             // D-83: head on him / ahead
+    private bool lookingAhead;
+    private bool hidingFirst;               // D-83: first sight - to the nearest cover first
+    private Vector3 firstCover;
+    private float hideFirstStart;
+    private float encounterHandoffAt = -999f;   // an encounter sent it here (it has already hidden)
 
     // ---------------------------------------------------------------
     // Setup / cleanup.
@@ -277,6 +301,8 @@ public class BearStalkState : BearStateBehaviour
         rearPursuit = GetComponent<BearRearPursuitState>();
         bodyPoints = GetComponent<BearBodyPoints>();
         faceOff = GetComponent<BearFaceOffState>();
+        mood = GetComponent<BearMood>();
+        cover = GetComponent<BearCoverFinder>();
     }
 
     // ---------------------------------------------------------------
@@ -286,6 +312,7 @@ public class BearStalkState : BearStateBehaviour
     public void PausePatterns(float seconds, string reason)
     {
         patternPauseUntil = Mathf.Max(patternPauseUntil, Time.time + seconds);
+        encounterHandoffAt = Time.time;     // called by an encounter right before it hands over
         Debug.Log("[Stalk] patterns wait " + seconds.ToString("F0") + " s (" + reason + ")");
     }
 
@@ -301,7 +328,24 @@ public class BearStalkState : BearStateBehaviour
         sideRoute = Vector3.zero;
         peekAttempts = 0;
         lastPeekTime = -999f;
+        lookingAhead = false;
+        lookSwitchAt = Time.time + Random.Range(lookOnTime.x, lookOnTime.y);
         StartWalk();
+
+        // D-83: first sight - before stalking it disappears into the nearest
+        // cover. After an encounter it has already hidden there.
+        if (cover == null)
+            cover = GetComponent<BearCoverFinder>();
+        hidingFirst = false;
+        bool fromEncounter = Time.time - encounterHandoffAt < 0.5f;
+        if (hideFirstOnSight && !fromEncounter && cover != null && Knowledge.HasLastKnownPosition &&
+            cover.Find(Knowledge.LastKnownPosition, out firstCover, 0.03f))
+        {
+            hidingFirst = true;
+            hideFirstStart = Time.time;
+            Debug.Log("[Stalk] first sight - first into the nearest cover, " +
+                      FlatDistance(transform.position, firstCover).ToString("F0") + " m (D-83)");
+        }
 
         tickTimer = 0f;
         lastTickBear = transform.position;
@@ -345,8 +389,9 @@ public class BearStalkState : BearStateBehaviour
         Vector3 player = Knowledge.EstimatePlayerPosition(maxPredictionTime);
         float distance = FlatDistance(player, transform.position);
 
-        // The head follows where the bear thinks the player is (D-32 logic).
-        vision.SetLookTarget(player + Vector3.up * PlayerChestHeight());
+        // The head follows where the bear thinks the player is (D-32) -
+        // but moving, it also looks ahead now and then (D-83).
+        UpdateLook(player);
 
         LogTick();                                          // debug, temporary
 
@@ -367,6 +412,12 @@ public class BearStalkState : BearStateBehaviour
 
         // No sight and no sound for a while -> peek (D-44, 8.11). Hears him
         // -> TimeSinceContact stays small -> it knows where he is, no peek.
+        if (hidingFirst)
+        {
+            UpdateHideFirst(player);
+            return;
+        }
+
         if (phase != Phase.Peek && Knowledge.TimeSinceContact >= noContactPeekTime &&
             Time.time - lastPeekTime >= peekInterval)
             StartPeek(player);
@@ -401,9 +452,16 @@ public class BearStalkState : BearStateBehaviour
 
         if (newlySpotted)
         {
-            if (distance <= encounterDistance)
+            // D-83: a Good bear does not slip away when it is seen - it
+            // stands its ground (the face-off, harmless for him) up to
+            // goodFaceOffDistance. Medium / Angry - only close, as before.
+            bool good = mood == null || mood.Level == BearMoodLevel.Good;
+            float standsAt = good ? Mathf.Max(encounterDistance, goodFaceOffDistance) : encounterDistance;
+            if (distance <= standsAt)
             {
-                Debug.Log("[Stalk] spotted at " + distance.ToString("F0") + " m - too close to hide: FACE-OFF");
+                string how = distance <= encounterDistance ? "too close to hide" : "it does not slip away - stands its ground (good, D-83)";
+                Debug.Log("[Stalk] spotted at " + distance.ToString("F0") + " m - " + how + ": FACE-OFF");
+                hidingFirst = false;
                 ToFaceOff(distance, "stalking - spotted at " + distance.ToString("F0") + " m");
                 return true;
             }
@@ -499,6 +557,10 @@ public class BearStalkState : BearStateBehaviour
 
             if (phase != Phase.Freeze)
             {
+                // Freezes anywhere - moving draws the eye (D-83: the 25.11
+                // "in the open it walks on" looked like running away). If he
+                // keeps looking straight at it, BearKnowledge decides "he sees
+                // me" -> CheckSpotted -> a Good bear stands its ground.
                 phase = Phase.Freeze;
                 Movement.Stop();
                 destinationSet = false;
@@ -712,6 +774,11 @@ public class BearStalkState : BearStateBehaviour
 
         UpdateLagging(distance, scale);
         float speed = WalkSpeed(lagging, inPursuit);
+
+        // D-83: in his sight - a calm walk; it hurries only where it
+        // believes he does not see it.
+        if (OnShow(player))
+            speed = Mathf.Min(speed, onShowMaxSpeed);
 
         repickTimer -= dt;
         checkTimer -= dt;
@@ -929,14 +996,17 @@ public class BearStalkState : BearStateBehaviour
         float bestScore = -50f;
         Vector3 best = transform.position;
         int bestIndex = -1;                                 // debug
+        bool seenNow = OnShow(player);                      // D-83: crosses only when it believes he does not see it
 
         for (int i = 0; i < count; i++)
         {
             float score = candidateScores[i];
+            if (seenNow && candidateOtherSide[i])
+                score = -60f;
             if (score <= -50f)
             {
                 candidateFinal[i] = score;
-                continue;                                   // outside the ring / crossing under his eyes
+                continue;                                   // outside the ring / crossing under his eyes / he sees it now
             }
 
             if (!candidateOtherSide[i])
@@ -1215,6 +1285,68 @@ public class BearStalkState : BearStateBehaviour
             speed = Mathf.Min(maxSpeed, Mathf.Max(speed, playerSpeed * 1.1f + 1f));
 
         return speed;
+    }
+
+    // ---------------------------------------------------------------
+    // D-83: does it believe he can see it right now? It saw / heard him
+    // in the last 2.5 s, it is in his view and at least onShowVisible of it is open to
+    // him. Checked every 0.3 s (3 rays). It may be wrong - that is fine.
+    // ---------------------------------------------------------------
+    private bool OnShow(Vector3 player)
+    {
+        if (Time.time < onShowCheckAt)
+            return onShow;
+
+        onShowCheckAt = Time.time + 0.3f;
+        Vector3 seenAt = Knowledge.LastSeenPosition;
+        onShow = Knowledge.TimeSinceContact < 2.5f &&                // looking ahead 1-2 s does not reset it
+                 InPlayerView(Flat(transform.position - seenAt)) &&
+                 VisibleFromPlayer(transform.position, seenAt) >= onShowVisible;
+        return onShow;
+    }
+
+    // D-83: the head is on him most of the time, but while it moves it
+    // looks ahead now and then (lookOnTime / lookAwayTime, ~1/3 ahead).
+    // Standing, frozen, reading - always on him.
+    private void UpdateLook(Vector3 player)
+    {
+        bool moving = Movement.CurrentSpeed > 0.5f;
+        if (!moving)
+            lookingAhead = false;
+        else if (Time.time >= lookSwitchAt)
+        {
+            lookingAhead = !lookingAhead;
+            lookSwitchAt = Time.time + (lookingAhead ? Random.Range(lookAwayTime.x, lookAwayTime.y)
+                                                     : Random.Range(lookOnTime.x, lookOnTime.y));
+        }
+
+        if (lookingAhead)
+            vision.ClearLookTarget();
+        else
+            vision.SetLookTarget(player + Vector3.up * PlayerChestHeight());
+    }
+
+    // D-83: first sight - to the nearest cover; hurries only while it
+    // believes he does not see it. There (or after 12 s) - stalking as usual.
+    private void UpdateHideFirst(Vector3 player)
+    {
+        bool there = FlatDistance(transform.position, firstCover) <= arriveDistance;
+        if (there || Time.time - hideFirstStart > 12f)
+        {
+            hidingFirst = false;
+            hasTarget = false;
+            StandAndFace(player);
+            Debug.Log("[Stalk] " + (there ? "in cover" : "did not get to cover in 12 s") + " - stalks from here");
+            return;
+        }
+
+        float speed = OnShow(player) ? onShowMaxSpeed : Mathf.Max(WalkSpeed(true, false), 5f);
+        Movement.SetSpeed(speed);
+        if (!destinationSet)
+        {
+            Movement.MoveTo(firstCover);
+            destinationSet = true;
+        }
     }
 
     // ---------------------------------------------------------------

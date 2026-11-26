@@ -448,6 +448,12 @@ MonoBehaviour:
   freezeViewAngle: 50
   unfreezeDelay: 0.5
   unfreezeBlindDelay: 2
+  goodFaceOffDistance: 35
+  onShowMaxSpeed: 1.8
+  onShowVisible: 0.3
+  hideFirstOnSight: 1
+  lookOnTime: {x: 2, y: 4}
+  lookAwayTime: {x: 1, y: 2}
   noContactPeekTime: 4
   peekInterval: 8
   peekLeadTime: 4
@@ -511,7 +517,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f82cd936d38244e83bc76137d2cacf14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  level: 1
+  level: 0
 --- !u!114 &694889823
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -660,7 +666,7 @@ MonoBehaviour:
   backedAwayTime: 1
   goodMercy: 0.95
   mediumMercy: 0.5
-  goodWatchTime: {x: 4, y: 7}
+  goodWatchTime: {x: 8, y: 12}
   threatTime: 4
   mediumFollowTime: 4
   mediumBluffAttack: 0.5
@@ -678,12 +684,24 @@ MonoBehaviour:
   refindEscapeTime: 8
   findsToAttack: 2
   forgetIgnoreTime: 2
-  warningRoarClip: {fileID: 0}
+  warningRoarClip: {fileID: 8300000, guid: 03f3df30d73794c839477dc99c7435b0, type: 3}
   roarVolume: 1
-  leaveDistance: 30
-  leaveDeceiveTime: 4
+  coverRunSpeed: 6
+  coverWalkIfCloser: 12
+  coverWalkSpeed: 2.5
+  coverMaxRunTime: 12
+  ambushDistance: 8
+  hideReleaseDistance: 35
+  maxHideTime: 25
+  coverChargeSpeed: 3
+  coverStepOutDistance: 25
+  coverBlindTime: 3
   leavePatternPause: 60
+  pressureStep: 4
+  pressureAttackAfter: 3
   loseContactTime: 15
+  contactDistance: 1
+  goodLevel1After: 3
   turnSpeed: 180
   repathInterval: 0.25
 --- !u!114 &694889849
@@ -723,7 +741,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   triggerDistance: 12
   surpriseAfter: 5
-  goodFlee: 0.5
+  goodFlee: 0.25
   mediumFlee: 0.3
   angryFlee: 0.1
   goodHuff: 0.6
@@ -737,6 +755,7 @@ MonoBehaviour:
   attackWarningPause: {x: 0.5, y: 1}
   retreatDistance: {x: 20, y: 30}
   retreatSpeed: 5.5
+  goodRetreatSpeed: 2.2
   retreatMaxTime: 10
   fleeDistance: {x: 30, y: 40}
   fleeSpeed: 7
@@ -744,11 +763,12 @@ MonoBehaviour:
   calmTime: {x: 20, y: 30}
   patternPause: 60
   loseContactTime: 60
-  huffClip: {fileID: 0}
-  fearClip: {fileID: 0}
-  warningClip: {fileID: 0}
+  huffClip: {fileID: 8300000, guid: 3b18057e0038a4ba88bcbe7fea1f1903, type: 3}
+  fearClip: {fileID: 8300000, guid: 5c0f611a80a5b46fea8eabfd202ab324, type: 3}
+  warningClip: {fileID: 8300000, guid: 71954df5220fe4b958b4e61e94ab1f2c, type: 3}
   volume: 1
   turnSpeed: 180
+  contactDistance: 1
   logTick: 1
   tickInterval: 0.5
 --- !u!114 &694889861
@@ -784,6 +804,152 @@ MonoBehaviour:
   show: 1
   fontSize: 22
   position: {x: 12, y: 10}
+--- !u!114 &694889863
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ba59f9c7b4394c80be4405ea7370330, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  headBoneName: RigHead
+  neckBones: 2
+  shares:
+  - 0.3
+  - 0.3
+  - 0.4
+  turnTime: 0.25
+  maxTurnSpeed: 240
+  logBones: 1
+--- !u!114 &694889874
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 78fd3691c8f8a430681ad0ecae4c03e9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  minLevelTime: {x: 2, y: 3}
+  actionPause: {x: 2, y: 4}
+  goodRearChance: 0.4
+  rearMinDistance: 15
+  rearChanceFar: 0.4
+  stepChance: 0.4
+  stepDistance: {x: 1, y: 2}
+  stepMinDistance: 7
+  stepSpeed: 1.5
+  huffClips:
+  - {fileID: 8300000, guid: a3206dd32ebd74bfc9a2ca88ba3ef2ff, type: 3}
+  - {fileID: 8300000, guid: 3fe68a761d8c0497893ca20cc83ebe9c, type: 3}
+  growlClips:
+  - {fileID: 8300000, guid: 56370616025b44136beaf8ae5601eedc, type: 3}
+  - {fileID: 8300000, guid: 5332cf81959fd426d872f047463dedfe, type: 3}
+  - {fileID: 8300000, guid: f5ccf57144b89477f9e0a2028da35eee, type: 3}
+  roarClips:
+  - {fileID: 8300000, guid: 03f3df30d73794c839477dc99c7435b0, type: 3}
+  - {fileID: 8300000, guid: 71954df5220fe4b958b4e61e94ab1f2c, type: 3}
+  - {fileID: 8300000, guid: 3fed55214c84d4d7eb11dc6ae37c1922, type: 3}
+  attackRoarClips:
+  - {fileID: 8300000, guid: 0b83d97256382432a8c0a0bd23b2eb26, type: 3}
+  - {fileID: 8300000, guid: 1dc463817dfc941e583cf9a4b8039e08, type: 3}
+  - {fileID: 8300000, guid: 99a06b402df2345d6b941c5aac547d69, type: 3}
+  - {fileID: 8300000, guid: 0faacf83115194a748bf1a6802679619, type: 3}
+  - {fileID: 8300000, guid: 21b966f396fc34f86914574da2b6e1d3, type: 3}
+  - {fileID: 8300000, guid: 7ac3ce8dae75842068efdbd99bc43bf8, type: 3}
+  lungeRoarAt: 0.2
+  slamRoarAt: 0.15
+  jawClip: {fileID: 8300000, guid: 397dce7157283434a94b15ccfb6e3c1f, type: 3}
+  thudClip: {fileID: 8300000, guid: a0b3c75401aed4dfbb97644015022988, type: 3}
+  thudAt: 0.4
+  volume: 1
+  logLevels: 1
+--- !u!114 &694889875
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 67dd5d1e8e5294166bc8e17b1fc3fd1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  maxDistance: 35
+  minDistance: 5
+  minFromPlayer: 15
+  angleSpread: 110
+  rings: 5
+  directions: 9
+  pointHidden: 0.85
+  areaHidden: 0.7
+  neighbourRadius: 2.5
+  logSearch: 1
+--- !u!114 &694889876
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 694889739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9075e203a8e5d4ea5aeaf043d01e7c13, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  breaths:
+  - {fileID: 8300000, guid: ae60592901a0a4dffa0c3e4e4061e040, type: 3}
+  - {fileID: 8300000, guid: d4aa12abea75841d0b619290688a00f1, type: 3}
+  - {fileID: 8300000, guid: e518c28d6d013483dbf7f5757b925705, type: 3}
+  - {fileID: 8300000, guid: 9fc261139c4b24537a44363c1a312461, type: 3}
+  - {fileID: 8300000, guid: ae2f1c83a17fd421b926c405016d2819, type: 3}
+  - {fileID: 8300000, guid: fa5bb17d8cf484c8d8c6d20cec088cd1, type: 3}
+  - {fileID: 8300000, guid: 480c47f25d5aa426ca922e009f12baf9, type: 3}
+  deepBreaths:
+  - {fileID: 8300000, guid: 5b50eb9031e1b494c9763c6829cc63fa, type: 3}
+  - {fileID: 8300000, guid: ba5a410e0127a4cb89cb2e457ecf7bed, type: 3}
+  rumbleBreaths:
+  - {fileID: 8300000, guid: 29d8fb3b8f9db4925bc5c17516d86ac5, type: 3}
+  - {fileID: 8300000, guid: 8a8a595ec6847403fb4e1e2fcfb4c364, type: 3}
+  - {fileID: 8300000, guid: 2b3fd3e8b1b294d8d9088c50c340f7ff, type: 3}
+  - {fileID: 8300000, guid: 6c5b48bdd88d647ffa05cbce2c98944e, type: 3}
+  - {fileID: 8300000, guid: db0f19322c8ab4523a774bd3a654ca66, type: 3}
+  - {fileID: 8300000, guid: 214e87f375c124cf3829f71d0851d192, type: 3}
+  - {fileID: 8300000, guid: 7213dbc33522f42ba9498a9f3926f6ed, type: 3}
+  - {fileID: 8300000, guid: 8df0bff8e22044e34b2b8162efadda1b, type: 3}
+  - {fileID: 8300000, guid: 7c549329c94a04d3ab43b259334e97f9, type: 3}
+  - {fileID: 8300000, guid: 656876b73860543bc9770b760e5e1863, type: 3}
+  - {fileID: 8300000, guid: 7e8e41832fb48434792a528431db8d8a, type: 3}
+  - {fileID: 8300000, guid: 2cd77765f14944760b2f10a296720b8b, type: 3}
+  breathPause: {x: 0.6, y: 1.6}
+  deepChance: 0.25
+  breathLoop: {fileID: 8300000, guid: 24d867604a38240b0bc3bf62fa7d6bec, type: 3}
+  pant: {fileID: 8300000, guid: bfae991618ec04401b34ff5996b0e2d1, type: 3}
+  afterRoar: {fileID: 8300000, guid: 8de3a077b7ffe416eb81c20367ed3e5d, type: 3}
+  calmSounds:
+  - {fileID: 8300000, guid: 39f42636c01a140ba833246bbfae25e2, type: 3}
+  - {fileID: 8300000, guid: 546da98db8ee040c1b8637f1cd2b809c, type: 3}
+  calmRoars:
+  - {fileID: 8300000, guid: 03f3df30d73794c839477dc99c7435b0, type: 3}
+  - {fileID: 8300000, guid: 71954df5220fe4b958b4e61e94ab1f2c, type: 3}
+  - {fileID: 8300000, guid: 3fed55214c84d4d7eb11dc6ae37c1922, type: 3}
+  calmRoarChance: 0.12
+  minDistance: 2
+  maxDistance: 15
+  volume: 1
+  stalkVolume: 0.3
+  calmSoundInterval: {x: 8, y: 20}
+  runSpeed: 4
+  runTime: 3
+  walkSpeed: 2
 --- !u!1 &728657698
 GameObject:
   m_ObjectHideFlags: 0
@@ -1439,6 +1605,10 @@ PrefabInstance:
       propertyPath: closeRange
       value: 4
       objectReference: {fileID: 0}
+    - target: {fileID: 3777444236254580096, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      propertyPath: blockingLayers.m_Bits
+      value: 247
+      objectReference: {fileID: 0}
     - target: {fileID: 3805288400417991833, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
       value: -0.49115902
@@ -1853,6 +2023,18 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
       insertIndex: -1
       addedObject: {fileID: 694889862}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889863}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889874}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889875}
+    - targetCorrespondingSourceObject: {fileID: 8204197503717511267, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 694889876}
   m_SourcePrefab: {fileID: 100100000, guid: cb33dd4ec2ebe48a0838fc8222317ffd, type: 3}
 --- !u!4 &1863984813222322939 stripped
 Transform:

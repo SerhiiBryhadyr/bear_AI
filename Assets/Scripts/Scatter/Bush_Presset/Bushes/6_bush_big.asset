@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b77ba38a8e1c4467ac031ba56982921, type: 3}
+  m_Name: 6_bush_big
+  m_EditorClassIdentifier: 
+  items:
+  - prefab: {fileID: 1621878584508643000, guid: 0949df3cdd2f74f729ed34135278cbe7, type: 3}
+    weight: 1
+    fitMode: 0
+    footprintRadius: 1
+    scaleRange: {x: 0.9, y: 1.15}
+    alignToSlope: 0.5
+    sinkDepth: 0.41
+    maxBury: 0.61
+    maxSlope: 35
+  density: 2
+  treeClearance: 1.2
+  avoidColliders: 1
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  avoidOtherZones: 1
+  avoidPathLayer: 0
+  pathLayer: {fileID: 0}
+  pathThreshold: 0.3
